@@ -1,17 +1,21 @@
+from msilib.schema import File
 from Constraints import semanticConstraints_BMC, consistencyConstraints, placeholderConstraints, suffixConstraints
-from helping_functions import construct_Sketch_from_Model, equal
+from helping_functions import construct_Sketch_from_Model, equal, to_dimacs
+from sketch import Sketch
 import global_variables
 from z3 import *
+import os
 
 
 # import values of global variables
+generate_SMTlib = global_variables.generate_SMTlib
 print_output = global_variables.print_output
 print_model = global_variables.print_model
 maximumSize = global_variables.maximumSize
 build_solution = global_variables.build_solution
 
 
-def check_existence_tree_bmc(sample, sketch):
+def check_existence_tree_bmc(sample, sketch, sample_name):
     """ Checks whether there exists a consistent substitution for the given sketch and sample.
         If build_solution is set to true it also computes and outputs such a solution.
         For both it uses the BMC heuristic.
@@ -36,14 +40,14 @@ def check_existence_tree_bmc(sample, sketch):
         if print_output:
             print("SAT")
         if build_solution:
-            build_solution_tree_bmc(sketch, sample, maximumSize)
+            build_solution_tree_bmc(sketch, sample, maximumSize, sample_name)
     else:
         if print_output:
             print("UNSAT")
 # ---------------------------------------------------------------------------------------------------
 
 
-def build_solution_tree_bmc(sketch, sample, finalSize):
+def build_solution_tree_bmc(sketch, sample, finalSize, sample_name):
     """ For the given sketch and sample it computes and outputs a consistent substitution,
         if one exists resulting in a formula of size smaller finalSize
         It uses the BMC heuristic.
@@ -63,7 +67,7 @@ def build_solution_tree_bmc(sketch, sample, finalSize):
     """
 
     solver_1 = Solver()
-
+    
     # change type0 placeholders to highest identifiers in sketch
     sketch.change_identifiers()
 
@@ -89,11 +93,13 @@ def build_solution_tree_bmc(sketch, sample, finalSize):
     alphabet = sample.alphabet
 
     possible_labels = operators + alphabet
+    ##possible_labels: ['G', 'F', '!', 'X', '&', '|', 'U', '->', 'p']
     traces = sample.positive + sample.negative
 
     # initialize all type-0 placeholder but the last one (will be a leaf)
     # consider them as additional nodes
     for id in additional_nodes:
+        
         # at least one label among all labels (operators + alphabet)
         solver_1.add(
             Or(
@@ -361,6 +367,9 @@ def build_solution_tree_bmc(sketch, sample, finalSize):
             print('looking for formula of size', num_nodes)
 
         solver_2 = Solver()
+
+        ##print(alphabet) ['p']
+        
         # ----------------------------------------
         # last node is leaf. Only necessary if there is at least one type-0 placeholder
         if last_node_id != num_nodes - 1:
@@ -982,7 +991,42 @@ def build_solution_tree_bmc(sketch, sample, finalSize):
         solver.add(solver_1.assertions())
         solver.add(solver_2.assertions())
 
+        # Create output directory
+        output_dir='experiment_results/reports'
+        os.makedirs(output_dir, exist_ok=True)  
+
+        # creaté the combined goal for tactic
+        g = Goal()
+        g.add(solver_1.assertions())
+        g.add(solver_2.assertions())
+
+        # tactic reduces the problem into propositional CNF
+        tactic = Then('simplify', 'bit-blast', 'tseitin-cnf')
+        subgoal = tactic(g)
+        assert len(subgoal) == 1
+
+        # Extract clauses and convert to DIMACS format 
+        clauses = [str(c) for c in subgoal[0]]   
+        #print(clauses)
+        dimacs_string = to_dimacs(clauses)
+
         if solver.check() == z3.sat:
+            sat = True
+            result='SAT'            
+        else:
+            sat = False
+            result='UNSAT'
+
+        sketch_name = ''.join(['Q' if l == '?' else 'Imp' if l == '>' else 'Or' if l == '|' else l for l in str(sketch)])
+
+        if generate_SMTlib:
+            with open(f'{output_dir}/SMT_{sample_name}_{sketch_name}_{num_nodes}_{result}.smt2', 'w') as f1:
+                f1.write(solver.to_smt2())
+
+            with open(f'{output_dir}/DIMACS_{sample_name}_{sketch_name}_{num_nodes}_{result}.dimacs', 'w') as f2:
+                f2.write(dimacs_string)    
+        
+        if sat:
             # construct substitutions from model
             m = solver.model()
 
@@ -990,7 +1034,7 @@ def build_solution_tree_bmc(sketch, sample, finalSize):
                 file = 'solution.txt'
                 f = open(file, 'w')
                 for var in m:
-                    f.write(str(var) + ', ' + str(is_true(m[e])) + '\n')
+                    f.write(str(var) + ', ' + str(is_true(m[var])) + '\n')
                 f.close()
 
             typ0_ids = sketch.get_type0Positions()
@@ -1008,7 +1052,6 @@ def build_solution_tree_bmc(sketch, sample, finalSize):
                 substitutions.append(sub)
 
             LTL = sketch.substitute_sketch_type_1_2(substitutions)
-
             # for type 0 placeholders a new sketch has to be constructed which replaces the placeholder-node
             substitutions = []
 
