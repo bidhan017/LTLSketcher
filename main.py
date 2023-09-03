@@ -11,6 +11,7 @@ from algorithm_cycle_free_new import check_existence_cycle_free
 from algorithm_cycle_free_bmc_new import check_existence_cycle_free_bmc
 from algorithm_cycle_free_suffix_new import check_existence_cycle_free_suffix
 from algorithm_cycle_free_suffix_bmc_new import check_existence_cycle_free_suffix_bmc
+import sys
 
 
 # Variables to enable different prints and the creation of log-files
@@ -40,7 +41,8 @@ def main():
     suffix_optimization = args.suffix_optimization
     bmc_optimization = args.bmc_optimization
 
-
+    sample_name=(input_file.split("\\")[-1]).split('.')[0]
+    
     s = Sample()
     s.readFromFile(input_file)
     reduce_sample(s)
@@ -50,28 +52,28 @@ def main():
     starting_id = 0
     f.assign_identifiers(starting_id)
     f.reduce()
-    run_solver(s, f, mode, suffix_optimization, bmc_optimization)
+    run_solver(s, f, sample_name, mode, suffix_optimization, bmc_optimization)
 
 # -----------------------------------------------------------------------------------------------------
-def run_solver(s, f, algo, suffix_optimization, bmc_optimization):
+def run_solver(s, f, sn, algo, suffix_optimization, bmc_optimization):
     try:
         if algo == 'tree':
             if suffix_optimization and bmc_optimization:
                 if print_output:
                     print('tree algorithm - with suffix- and bmc-optimization')
-                check_existence_tree_suffix_bmc(s, f)
+                check_existence_tree_suffix_bmc(s, f, sn)
             elif suffix_optimization:
                 if print_output:
                     print('tree algorithm - with suffix-optimization')
-                check_existence_tree_suffix(s, f)
+                check_existence_tree_suffix(s, f, sn)
             elif bmc_optimization:
                 if print_output:
                     print('tree algorithm - with bmc-optimization')
-                check_existence_tree_bmc(s, f)
+                check_existence_tree_bmc(s, f, sn)
             else:
                 if print_output:
                     print('tree algorithm - without optimizations')
-                check_existence_tree(s, f)
+                check_existence_tree(s, f, sn)
         elif algo == 'cycle-free':
             if suffix_optimization and bmc_optimization:
                 if print_output:
