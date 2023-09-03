@@ -638,3 +638,46 @@ def construct_Sketch_from_Model_cycle_free(rootid, model, alphabet, identifier_l
 
     return sketch_list[identifier_list.index(rootid)]
 # ---------------------------------------------------------------------------------------------------
+
+def to_dimacs(clauses):
+    # Remove whitespace and empty lines 
+    clauses = [clause.strip() for clause in clauses if clause.strip() != ""]
+
+    # Create a mapping to assign unique IDs to variables
+    variable_ids = {}
+    next_variable_id = 1
+
+    # Create a list to store CNF clauses
+    cnf_clauses = []
+
+    for clause in clauses:
+        literals = clause.split(', ')
+        cnf_clause = []
+
+        for literal in literals:
+            # Extract variable and check for negation
+            variable = literal.strip('()NOT ')
+            is_negation = literal.startswith('NOT')
+
+            # assign unique ID to variable if not seen before
+            if variable not in variable_ids:
+                variable_ids[variable] = next_variable_id
+                next_variable_id += 1
+
+            variable_id = variable_ids[variable]
+            # convert to CNF literal format
+            cnf_literal = -variable_id if is_negation else variable_id
+            cnf_clause.append(cnf_literal)
+
+        # Add 0 to end the clause
+        cnf_clause.append(0)  
+        cnf_clauses.append(cnf_clause)
+
+    # Construct the DIMACS string
+    dimacs_string = "p cnf {} {}\n".format(len(variable_ids), len(cnf_clauses))
+    for clause in cnf_clauses:
+        dimacs_string += " ".join(map(str, clause)) + "\n"
+
+    return dimacs_string
+
+# -----------------------------------------------------------------------------------------------------
