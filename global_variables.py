@@ -1,5 +1,7 @@
 # I/O
-print_output = False
+print_debug = False
+generate_SMTlib = True
+print_output = True
 print_model = False
 print_tables = False
 timing = False
