@@ -3254,7 +3254,7 @@ def consistencyConstraints_suffix(s, root_id, ntable):
             s.add(
                 Bool('z_%s_%s' % (root_id, j))
             )
-        else:
+        elif row["type"] == -1:
             # word is negative
             s.add(
                 Not(Bool('z_%s_%s' % (root_id, j)))
