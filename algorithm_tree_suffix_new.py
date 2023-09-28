@@ -2,15 +2,19 @@ from z3 import *
 from Constraints import semanticConstraints_suffix, consistencyConstraints_suffix, placeholderConstraints
 from helping_functions import *
 import global_variables
+import os
+import pandas as pd
 
 # import values of global variables
+print_debug = global_variables.print_debug
+generate_SMTlib = global_variables.generate_SMTlib
 print_output = global_variables.print_output
 print_model = global_variables.print_model
 maximumSize = global_variables.maximumSize
 build_solution = global_variables.build_solution
 
 
-def check_existence_tree_suffix(sample, sketch):
+def check_existence_tree_suffix(sample, sketch, sample_name):
     """ Checks whether there exists a consistent substitution for the given sketch and sample.
         If build_solution is set to true it also computes and outputs such a solution.
         For both it uses the suffix heuristic.
@@ -23,24 +27,31 @@ def check_existence_tree_suffix(sample, sketch):
         sketch : Sketch
             The sketch for which existence of a solution should be checked
     """
+    #To print the reduced traces
+    #pretty_print_sample(sample)    
+    
     sample_table, suffix_table = sample_to_tables(sample)
-
+    ntable = new_table(sample)
+    
     s = Solver()
 
-    semanticConstraints_suffix(s, sketch, sample_table, suffix_table, sample.letter2pos)
-    consistencyConstraints_suffix(s, sketch.identifier, sample_table, sample.num_positives)
+    semanticConstraints_suffix(s, sketch, ntable, sample.letter2pos)
+    #semanticConstraints_suffix(s, sketch, sample_table, suffix_table, sample.letter2pos)
+    consistencyConstraints_suffix(s, sketch.identifier, ntable)
+    #consistencyConstraints_suffix(s, sketch.identifier, sample_table, sample.num_positives)
     placeholderConstraints(s, sketch, sketch.getAllNodes())
 
     if s.check() == z3.sat:
         print("SAT")
         if build_solution:
-            build_solution_tree_suffix(sketch, sample_table, suffix_table, sample, maximumSize)
+            build_solution_tree_suffix(sketch, sample_table, suffix_table, ntable, sample, maximumSize, sample_name)
+            #build_solution_tree_suffix(sketch, sample_table, suffix_table, sample, maximumSize, sample_name)
     else:
         print("UNSAT")
 # ---------------------------------------------------------------------------------------------------
 
 
-def build_solution_tree_suffix(sketch, sample_table, suffix_table, sample, finalSize):
+def build_solution_tree_suffix(sketch, sample_table, suffix_table, ntable, sample, finalSize, sample_name):
     """ For the given sketch and sample it computes and outputs a consistent substitution,
         if one exists resulting in a formula of size smaller finalSize
         It uses the suffix heuristic.
@@ -71,17 +82,21 @@ def build_solution_tree_suffix(sketch, sample_table, suffix_table, sample, final
     sketch.change_identifiers()
 
     # encode consistency (evaluation at the root must match the type (pos, neg) of trace)
-    consistencyConstraints_suffix(solver_1, sketch.identifier, sample_table, sample.num_positives)
+    #consistencyConstraints_suffix(solver_1, sketch.identifier, sample_table, ntable, sample.num_positives)
+    consistencyConstraints_suffix(solver_1, sketch.identifier, ntable)
+
 
     # encode sketch except type0 placeholders, those are the same as the semantic constraints in the existence check
-    semanticConstraints_suffix(solver_1, sketch, sample_table, suffix_table, sample.letter2pos)
-
+    semanticConstraints_suffix(solver_1, sketch, ntable, sample.letter2pos)
+    #semanticConstraints_suffix(solver_1, sketch, sample_table, suffix_table, sample.letter2pos)
+    
     # encode same evaluation of same placeholders (1/2)
     placeholderConstraints(solver_1, sketch, sketch.getAllNodes())
 
     num_nodes = sketch.treeSize()
     type_0_nodes = sketch.get_type0Positions()
     additional_nodes = type_0_nodes[:-1]
+
     if len(type_0_nodes) > 0:
         last_node_id = type_0_nodes[-1]
     else:
@@ -505,10 +520,13 @@ def build_solution_tree_suffix(sketch, sample_table, suffix_table, sample, final
                             )
 # ----------------------------------------
     # start looping
+    #ENTERS BELOW
     while num_nodes < finalSize:
         if print_output:
             print('looking for formula of size', num_nodes)
-
+        #print(f'alphabet:{alphabet}') #p
+        #print(f'operators:{operators}') #['G', 'F', '!', 'X', '&', '|', 'U', '->']
+        
         solver_2 = Solver()
         # ----------------------------------------
         # last node is leaf. Only necessary if there is at least one type-0 placeholder
@@ -542,7 +560,7 @@ def build_solution_tree_suffix(sketch, sample_table, suffix_table, sample, final
                     [Not(Bool('x_%s_%s' % (id, op))) for op in operators]
                 )
             )
-
+            
             # evaluation for atomic proposition
             for ap in alphabet:
                 for sample_entry in sample_table:
@@ -584,12 +602,38 @@ def build_solution_tree_suffix(sketch, sample_table, suffix_table, sample, final
                                     Not(Bool('z_%s_%s_%s' % (id, s, k)))
                                 )
                             )
+            '''
+
+            # evaluation for atomic proposition
+            for ap in alphabet:
+                for row in ntable:
+                    j = row["id"]
+                    #trace = sample_entry["prefix"]
+                    ##print(f'prefix:{trace}')
+                    trace = row.u if row.u != [] else row.v
+                    if trace[0][sample.letter2pos[ap]] == 1:
+                            solver_1.add(
+                                Implies(
+                                    Bool('x_%s_%s' % (id, ap)),  # ->
+                                    Bool('z_%s_%s' % (id, j))
+                                )
+                            )
+                    else:
+                            solver_1.add(
+                                Implies(
+                                    Bool('x_%s_%s' % (id, ap)),  # ->
+                                    Not(Bool('z_%s_%s' % (id, j)))
+                                )
+                            )
+            '''
         # --------------------------
         # previously last node:
         # need to initialize all Constraints for this node:
+        #ENTERS BELOW
         if prev_last_node_id != -1:
             id = prev_last_node_id
             # at least one label among all labels (operators + alphabet)
+            #print(possible_labels)   #['G', 'F', '!', 'X', '&', '|', 'U', '->', 'p']
             solver_1.add(
                 Or(
                     [Bool('x_%s_%s' % (id, label)) for label in possible_labels]
@@ -643,6 +687,7 @@ def build_solution_tree_suffix(sketch, sample_table, suffix_table, sample, final
             leftid = last_node_id
             rightid = last_node_id
 
+            #HAVE TO MAKE CHANGES TO THIS
             for sample_entry in sample_table:
                 j = sample_entry["id"]
                 trace = sample_entry["prefix"]
@@ -943,6 +988,7 @@ def build_solution_tree_suffix(sketch, sample_table, suffix_table, sample, final
         # - the at least one Constraints on the children to solver_2,
         # - the at most one containing the new last node to solver_1
         # - and the evaluation with the new last node as one of the children also to solver_1
+        # DOESN'T ENTER HERE
         for id in additional_nodes:
             # left child
             # at least one (with higher index)
@@ -1482,6 +1528,10 @@ def build_solution_tree_suffix(sketch, sample_table, suffix_table, sample, final
         solver.add(solver_1.assertions())
         solver.add(solver_2.assertions())
 
+        ##HERE##
+        output_dir='experiment_results/reports'
+        os.makedirs(output_dir, exist_ok=True)
+
         if solver.check() == z3.sat:
             # construct substitutions from model
             m = solver.model()
@@ -1492,6 +1542,12 @@ def build_solution_tree_suffix(sketch, sample_table, suffix_table, sample, final
                 for e in m:
                     f.write(str(e) + ', ' + str(is_true(m[e])) + '\n')
                 f.close()
+
+            if generate_SMTlib:
+                filename = f'experiment_results/reports/SMT_{sample_name}_sketch_{num_nodes}.smt2'
+                with open(filename, mode='w') as f1:
+                    f1.write(solver.to_smt2())
+                f1.close()
 
             typ0_ids = sketch.get_type0Positions()
             typ1_ids = sketch.get_type1Positions()
