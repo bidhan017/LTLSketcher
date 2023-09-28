@@ -1,7 +1,8 @@
+from re import I
 from sample import Trace
 from sketch import Sketch
 from z3 import *
-
+import pandas as pd
 
 def pretty_print_dic_list(dic_list):
     """ Prints a list of dictionaries in a nice way
@@ -180,7 +181,7 @@ def reduce_sample(sample):
                 prefix_pos -= 1
             else:
                 break
-
+    
     # for debugging
     # pretty_print_sample(sample)
 # ---------------------------------------------------------------------------------------------------
@@ -333,6 +334,129 @@ def BET_2(id_1, pos_1, id_2, pos_2, start_pos, prefix_length):
 # ---------------------------------------------------------------------------------------------------
 
 
+def new_table(sample):
+    
+    traces = sample.positive + sample.negative
+
+    #Create an initial table with duplicates allowed
+    new_table = []  # table of dictionaries{id,u,v,next_id}
+    suffix_id=0     # track suffixes to create IDs
+    id_fp=0         # variable that sums up the length of each trace added to track first position of each suffix
+
+    for trace_id, trace in enumerate(traces):
+        for i in range(trace.length):            
+            suffix = build_suffix(trace, i)
+            next_id = suffix_id + 1 if i != trace.length - 1 else id_fp + trace.lasso_start
+            if trace_id < len(sample.positive) and i == 0:
+                type_id=1
+            elif trace_id >= len(sample.positive) and i == 0:
+                type_id=-1
+            else:
+                type_id=0
+            sample_entry = {
+                 'id': suffix_id,                       
+                 'u': suffix.prefix,
+                 'v': suffix.lasso, 
+                 'next_id': next_id,
+                 'type':type_id
+            }
+            suffix_id += 1
+            if i == trace.length-1:
+                id_fp += trace.length
+            new_table.append(sample_entry)
+
+    #for k in new_table:
+    #   print(k)
+
+    #Update the next ID and find duplicate rows to delete
+    indices_to_delete = set()
+
+    for i, d in enumerate(new_table):
+        u_value = tuple(d["u"])
+        v_value = tuple(d["v"])
+        #j are previous rows which are compared with i
+        for j in range(0,i):
+            if tuple(new_table[j]["u"]) == u_value and tuple(new_table[j]["v"]) == v_value:
+                new_table[i-1]["next_id"] = j
+                indices_to_delete.add(i)
+                if new_table[i]['type'] == 1:
+                    new_table[j]['type'] = 1
+                if new_table[i]['type'] == -1:
+                    new_table[j]['type'] = -1
+                break
+     
+    #for k in new_table:
+    #    print(k)
+       
+    # Remove duplicate entries
+    for index in sorted(indices_to_delete, reverse=True):
+        del new_table[index]
+
+    #for k in new_table:
+    #    print(k)
+    
+    #Post-processing fill the gaps
+    # Create a dictionary to map old IDs to new IDs
+    id_mapping = {}
+    new_id = 0
+
+    # Iterate and create the ID mapping
+    for item in new_table:
+        old_id = item['id']
+        id_mapping[old_id] = new_id
+        new_id += 1
+
+    # Iterate and update 'id' and 'next_id' values
+    for item in new_table:
+        item['id'] = id_mapping[item['id']]
+        item['next_id'] = id_mapping[item['next_id']]
+    
+    #Convert dictionaries to DataFrame for better visualization
+    #df=pd.DataFrame(new_table)
+    #print(df)
+    #for k in new_table:
+    #    print(k)
+
+    return new_table
+
+def future_positions(sample_table, k):
+    #obtain the mapping of id and next_id
+    mapping={}
+    for row in sample_table:
+        sample_id=row['id']
+        mapping[sample_id]=()
+        next_id=row['next_id']
+        mapping[sample_id]=next_id
+    #print(mapping)
+    
+    future_position={}
+    for row in sample_table:
+        next2=[]
+        sample_id=row['id']
+        next2.append(sample_id)
+        future_position[sample_id]=[]
+        next1=mapping[sample_id]
+        #print(f'next1:{next1}')
+        while next1 not in next2:
+            next2.append(next1)
+            sample_i=next1
+            next1=mapping[sample_i]
+        future_position[sample_id]=next2
+    #print(future_position)
+
+    return future_position[k]
+
+def BET_POS(sample_table, j, f):
+    fut=future_positions(sample_table, j)
+    #print(fut)
+    between_positions = []
+    for i in fut:
+        if i == f:
+            break
+        else:
+            between_positions.append(i) 
+    return between_positions
+
 def sample_to_tables(sample):
     """ Transforms the given sample into the prefix- and suffix tables for the suffix heuristic
 
@@ -413,7 +537,8 @@ def sample_to_tables(sample):
                     }
                     suffix_table.append(suffix_entry)
                     suffix_counter += 1
-
+                    
+                
                 # case 2:
                 elif reference_table[xid] is not None and reference_table[yid] is None:
                     u = suffix_table[int(sample_table[reference_table[xid]]["sid"][1:])]["u"]
