@@ -653,8 +653,6 @@ def semanticConstraints_suffix(solver, sketch, ntable, letter2pos):
 
         for row in ntable:
             j = row["id"]
-            #trace = row.u if row.u != [] else row.v
-            #trace = sample_entry["prefix"]
 
             solver.add(
                 Bool('z_%s_%s' % (node_id, j)) ==
@@ -670,10 +668,9 @@ def semanticConstraints_suffix(solver, sketch, ntable, letter2pos):
         if print_debug:
             print('Hello ->')
 
-        for sample_entry in sample_table:
-            j = sample_entry["id"]
-            #trace = sample_entry["prefix"]
-
+        for row in ntable:
+            j = row["id"]
+            
             solver.add(
                  Bool('z_%s_%s' % (node_id, j)) ==
                  Implies(
@@ -890,7 +887,7 @@ def semanticConstraints_suffix(solver, sketch, ntable, letter2pos):
             solver.add(
                 Implies(
                     Bool('x_%s_U' % node_id),  # ->
-                    Bool('z_%s_%s_%s' % (node_id, j)) ==
+                    Bool('z_%s_%s' % (node_id, j)) ==
                     Or(
                         [
                            And(
