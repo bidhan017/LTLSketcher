@@ -365,9 +365,6 @@ def new_table(sample):
                 id_fp += trace.length
             new_table.append(sample_entry)
 
-    #for k in new_table:
-    #   print(k)
-
     #Update the next ID and find duplicate rows to delete
     indices_to_delete = set()
 
@@ -384,16 +381,10 @@ def new_table(sample):
                 if new_table[i]['type'] == -1:
                     new_table[j]['type'] = -1
                 break
-     
-    #for k in new_table:
-    #    print(k)
        
     # Remove duplicate entries
     for index in sorted(indices_to_delete, reverse=True):
         del new_table[index]
-
-    #for k in new_table:
-    #    print(k)
     
     #Post-processing fill the gaps
     # Create a dictionary to map old IDs to new IDs
@@ -410,14 +401,19 @@ def new_table(sample):
     for item in new_table:
         item['id'] = id_mapping[item['id']]
         item['next_id'] = id_mapping[item['next_id']]
-    
-    #Convert dictionaries to DataFrame for better visualization
-    #df=pd.DataFrame(new_table)
-    #print(df)
-    #for k in new_table:
-    #    print(k)
 
     return new_table
+
+
+def new_table_bmc(ntable):
+    for row in ntable:
+        if row['next_id'] <= row['id'] and row['id'] in future_positions(ntable, row['next_id']):
+            row['bmc'] = 0
+        else:
+            row['bmc'] = 1
+
+    return ntable
+
 
 def future_positions(sample_table, k):
     #obtain the mapping of id and next_id
@@ -427,7 +423,6 @@ def future_positions(sample_table, k):
         mapping[sample_id]=()
         next_id=row['next_id']
         mapping[sample_id]=next_id
-    #print(mapping)
     
     future_position={}
     for row in sample_table:
@@ -436,26 +431,26 @@ def future_positions(sample_table, k):
         next2.append(sample_id)
         future_position[sample_id]=[]
         next1=mapping[sample_id]
-        #print(f'next1:{next1}')
         while next1 not in next2:
             next2.append(next1)
             sample_i=next1
             next1=mapping[sample_i]
         future_position[sample_id]=next2
-    #print(future_position)
 
     return future_position[k]
 
+
 def BET_POS(sample_table, j, f):
     fut=future_positions(sample_table, j)
-    #print(fut)
     between_positions = []
     for i in fut:
         if i == f:
             break
         else:
             between_positions.append(i) 
+    
     return between_positions
+
 
 def sample_to_tables(sample):
     """ Transforms the given sample into the prefix- and suffix tables for the suffix heuristic
@@ -688,7 +683,7 @@ def construct_Sketch_from_Model(model, alphabet, id, number_of_nodes):
 
     leaf = [ap for ap in alphabet if z3.is_true(model[z3.Bool('x_%s_%s' % (id, ap))])]
     unary = [op for op in ['!', 'X', 'G', 'F'] if z3.is_true(model[z3.Bool('x_%s_%s' % (id, op))])]
-    binary = [op for op in ['&', '|', '->', 'U'] if z3.is_true(model[z3.Bool('x_%s_%s' % (id, op))])]
+    binary = [op for op in ['&', 'v', '->', 'U'] if z3.is_true(model[z3.Bool('x_%s_%s' % (id, op))])]
 
     if len(leaf) > 0:
         ap = leaf[0]
@@ -736,7 +731,7 @@ def construct_Sketch_from_Model_cycle_free(rootid, model, alphabet, identifier_l
     """
 
     sketch_list = []
-    labels = alphabet + ['!', 'X', 'G', 'F', '&', '|', '->', 'U']
+    labels = alphabet + ['!', 'X', 'G', 'F', '&', 'v', '->', 'U']
 
     for id in identifier_list:
         label = [label for label in labels if is_true(model[Bool('x_%s_%s' % (id, label))])][0]
@@ -754,7 +749,7 @@ def construct_Sketch_from_Model_cycle_free(rootid, model, alphabet, identifier_l
             left = [pos for pos in identifier_list if is_true(model[Bool('l_%s_%s' % (id, pos))])][0]
             sketch.left = sketch_list[identifier_list.index(left)]
 
-        elif sketch.label in ['&', '|', '->', 'U']:
+        elif sketch.label in ['&', 'v', '->', 'U']:
             left = [pos for pos in identifier_list if is_true(model[Bool('l_%s_%s' % (id, pos))])][0]
             sketch.left = sketch_list[identifier_list.index(left)]
 
@@ -781,8 +776,8 @@ def to_dimacs(clauses):
 
         for literal in literals:
             # Extract variable and check for negation
-            variable = literal.strip('()NOT ')
-            is_negation = literal.startswith('NOT')
+            variable = literal.strip('()Not ')
+            is_negation = literal.startswith('Not')
 
             # assign unique ID to variable if not seen before
             if variable not in variable_ids:
