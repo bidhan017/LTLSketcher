@@ -1,16 +1,18 @@
 from z3 import *
 from Constraints import semanticConstraints, consistencyConstraints, placeholderConstraints, suffixConstraints
-from helping_functions import construct_Sketch_from_Model, equal
+from helping_functions import construct_Sketch_from_Model, equal, to_dimacs
 import global_variables
+import os
 
 # import values of global variables
+generate_lib = global_variables.generate_lib
 print_output = global_variables.print_output
 print_model = global_variables.print_model
 maximumSize = global_variables.maximumSize
 build_solution = global_variables.build_solution
 
 
-def check_existence_tree(sample, sketch):
+def check_existence_tree(sample, sketch, sample_name):
     """ Checks whether there exists a consistent substitution for the given sketch and sample.
         If build_solution is set to true it also computes and outputs such a solution.
         It uses none of the heuristics.
@@ -34,13 +36,13 @@ def check_existence_tree(sample, sketch):
     if s.check() == z3.sat:
         print("SAT")
         if build_solution:
-            build_solution_tree(sketch, sample, maximumSize)
+            build_solution_tree(sketch, sample, maximumSize, sample_name)
     else:
         print("UNSAT")
 # ---------------------------------------------------------------------------------------------------
 
 
-def build_solution_tree(sketch, sample, finalSize):
+def build_solution_tree(sketch, sample, finalSize, sample_name):
     """ For the given sketch and sample it computes and outputs a consistent substitution,
         if one exists resulting in a formula of size smaller finalSize
         It uses none of the heuristics.
@@ -251,7 +253,7 @@ def build_solution_tree(sketch, sample, finalSize):
                         solver_1.add(
                             Implies(
                                 And(
-                                    Bool('x_%s_%s' % (id, '|')),
+                                    Bool('x_%s_%s' % (id, 'v')),
                                     Bool('l_%s_%s' % (id, leftid)),
                                     Bool('r_%s_%s' % (id, rightid))
                                 ),  # ->
@@ -498,7 +500,7 @@ def build_solution_tree(sketch, sample, finalSize):
                     solver_1.add(
                         Implies(
                             And(
-                                Bool('x_%s_%s' % (id, '|')),
+                                Bool('x_%s_%s' % (id, 'v')),
                                 Bool('l_%s_%s' % (id, leftid)),
                                 Bool('r_%s_%s' % (id, rightid))
                             ),  # ->
@@ -683,7 +685,7 @@ def build_solution_tree(sketch, sample, finalSize):
                         solver_1.add(
                             Implies(
                                 And(
-                                    Bool('x_%s_%s' % (id, '|')),
+                                    Bool('x_%s_%s' % (id, 'v')),
                                     Bool('l_%s_%s' % (id, leftid)),
                                     Bool('r_%s_%s' % (id, other_id))
                                 ),  # ->
@@ -758,7 +760,7 @@ def build_solution_tree(sketch, sample, finalSize):
                             solver_1.add(
                                 Implies(
                                     And(
-                                        Bool('x_%s_%s' % (id, '|')),
+                                        Bool('x_%s_%s' % (id, 'v')),
                                         Bool('l_%s_%s' % (id, other_id)),
                                         Bool('r_%s_%s' % (id, rightid))
                                     ),  # ->
@@ -815,15 +817,50 @@ def build_solution_tree(sketch, sample, finalSize):
         solver.add(solver_1.assertions())
         solver.add(solver_2.assertions())
 
+        # Create output directory
+        output_dir='experiment_results/reports'
+        os.makedirs(output_dir, exist_ok=True)
+
+        # create the combined goal for tactic
+        g = Goal()
+        g.add(solver_1.assertions())
+        g.add(solver_2.assertions())
+
+        # tactic reduces the problem into propositional CNF
+        tactic = Then('simplify', 'bit-blast', 'tseitin-cnf')
+        subgoal = tactic(g)
+        assert len(subgoal) == 1
+
+        # Extract clauses and convert to DIMACS format 
+        clauses = [str(c) for c in subgoal[0]]   
+        #print(clauses)
+        dimacs_string = to_dimacs(clauses)
+
         if solver.check() == z3.sat:
+            sat = True
+            result='SAT'            
+        else:
+            sat = False
+            result='UNSAT'
+
+        sketch_name = ''.join(['Q' if l == '?' else 'Imp' if l == '>' else 'Or' if l == 'v' else l for l in str(sketch)])
+
+        if generate_lib:
+            with open(f'{output_dir}/SMT_{sample_name}_{sketch_name}_{num_nodes}_{result}.smt2', 'w') as f1:
+                f1.write(solver.to_smt2())
+
+            with open(f'{output_dir}/DIMACS_{sample_name}_{sketch_name}_{num_nodes}_{result}.dimacs', 'w') as f2:
+                f2.write(dimacs_string)    
+        
+        if sat:
             # construct substitutions from model
             m = solver.model()
 
             if print_model:
                 file = 'solution.txt'
                 f = open(file, 'w')
-                for e in m:
-                    f.write(str(e) + ', ' + str(is_true(m[e])) + '\n')
+                for var in m:
+                    f.write(str(var) + ', ' + str(is_true(m[var])) + '\n')
                 f.close()
 
             typ0_ids = sketch.get_type0Positions()
@@ -837,7 +874,7 @@ def build_solution_tree(sketch, sample, finalSize):
                 substitutions.append(sub)
 
             for id in typ2_ids:
-                sub = (id, [op for op in ['&', '|', '->', 'U'] if z3.is_true(m[z3.Bool('x_%s_%s' % (id, op))])][0])
+                sub = (id, [op for op in ['&', 'v', '->', 'U'] if z3.is_true(m[z3.Bool('x_%s_%s' % (id, op))])][0])
                 substitutions.append(sub)
 
             LTL = sketch.substitute_sketch_type_1_2(substitutions)
