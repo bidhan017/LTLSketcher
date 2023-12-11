@@ -1,15 +1,17 @@
 from Constraints import semanticConstraints_suffix_BMC, consistencyConstraints_suffix, placeholderConstraints
 from helping_functions import *
 import global_variables
+import os
 
 # import values of global variables
+generate_lib = global_variables.generate_lib
 print_output = global_variables.print_output
 print_model = global_variables.print_model
 maximumSize = global_variables.maximumSize
 build_solution = global_variables.build_solution
 
 
-def check_existence_tree_suffix_bmc(sample, sketch):
+def check_existence_tree_suffix_bmc(sample, sketch, sample_name):
     """ Checks whether there exists a consistent substitution for the given sketch and sample.
         If build_solution is set to true it also computes and outputs such a solution.
         For both it uses both the BMC and the suffix heuristic.
@@ -23,24 +25,25 @@ def check_existence_tree_suffix_bmc(sample, sketch):
             The sketch for which existence of a solution should be checked
     """
 
-    sample_table, suffix_table = sample_to_tables(sample)
+    ntable1 = new_table(sample)
+    ntable = new_table_bmc(ntable1)
 
     s = Solver()
 
-    semanticConstraints_suffix_BMC(s, sketch, sample_table, suffix_table, sample.letter2pos)
-    consistencyConstraints_suffix(s, sketch.identifier, sample_table, sample.num_positives)
+    semanticConstraints_suffix_BMC(s, sketch, ntable, sample.letter2pos)
+    consistencyConstraints_suffix(s, sketch.identifier, ntable)
     placeholderConstraints(s, sketch, sketch.getAllNodes())
 
     if s.check() == z3.sat:
         print("SAT")
         if build_solution:
-            build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, maximumSize)
+            build_solution_tree_suffix_bmc(sketch, ntable, sample, maximumSize, sample_name)
     else:
         print("UNSAT")
 # ---------------------------------------------------------------------------------------------------
 
 
-def build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, finalSize):
+def build_solution_tree_suffix_bmc(sketch, ntable, sample, finalSize, sample_name):
     """ For the given sketch and sample it computes and outputs a consistent substitution,
         if one exists resulting in a formula of size smaller finalSize
         It uses both the BMC and the suffix heuristic.
@@ -71,10 +74,10 @@ def build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, f
     sketch.change_identifiers()
 
     # encode consistency (evaluation at the root must match the type (pos, neg) of trace)
-    consistencyConstraints_suffix(solver_1, sketch.identifier, sample_table, sample.num_positives)
+    consistencyConstraints_suffix(solver_1, sketch.identifier, ntable)
 
     # encode sketch except type0 placeholders, those are the same as the semantic constraints in the existence check
-    semanticConstraints_suffix_BMC(solver_1, sketch, sample_table, suffix_table, sample.letter2pos)
+    semanticConstraints_suffix_BMC(solver_1, sketch, ntable, sample.letter2pos)
 
     # encode same evaluation of same placeholders (1/2)
     placeholderConstraints(solver_1, sketch, sketch.getAllNodes())
@@ -153,195 +156,114 @@ def build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, f
         # Constraints encoding evaluation
         # atomic propositions
         for ap in alphabet:
-            for sample_entry in sample_table:
-                j = sample_entry["id"]
-                trace = sample_entry["prefix"]
+            for row in ntable:
+                j = row["id"]
+                trace = row['u'] if row['u'] != [] else row['v']
 
-                for k in range(len(trace)):
-                    if trace[k][sample.letter2pos[ap]] == 1:
-                        solver_1.add(
-                            Implies(
-                                Bool('x_%s_%s' % (id, ap)),  # ->
-                                Bool('z_%s_%s_%s' % (id, j, k))
-                            )
+                if trace[0][sample.letter2pos[ap]] == 1:
+                     solver_1.add(
+                        Implies(
+                            Bool('x_%s_%s' % (id, ap)),  # ->
+                            Bool('z_%s_%s' % (id, j))
                         )
-                    else:
-                        solver_1.add(
-                            Implies(
-                                Bool('x_%s_%s' % (id, ap)),  # ->
-                                Not(Bool('z_%s_%s_%s' % (id, j, k)))
-                            )
+                     )
+                else:
+                    solver_1.add(
+                        Implies(
+                            Bool('x_%s_%s' % (id, ap)),  # ->
+                            Not(Bool('z_%s_%s' % (id, j)))
                         )
+                    )
 
-            for suffix_entry in suffix_table:
-                s = suffix_entry["sid"]
-                trace = suffix_entry["u"] + suffix_entry["v"]
-
-                for k in range(len(trace)):
-                    if trace[k][sample.letter2pos[ap]] == 1:
-                        solver_1.add(
-                            Implies(
-                                Bool('x_%s_%s' % (id, ap)),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k))
-                            )
-                        )
-                    else:
-                        solver_1.add(
-                            Implies(
-                                Bool('x_%s_%s' % (id, ap)),  # ->
-                                Not(Bool('z_%s_%s_%s' % (id, s, k)))
-                            )
-                        )
 
         for leftid in range(id + 1, last_node_id):
             # unary operators
-            for sample_entry in sample_table:
-                j = sample_entry["id"]
-                trace = sample_entry["prefix"]
+            for row in ntable:
+                j = row["id"]
 
-                for k in range(len(trace)):
-                    # ! (Not)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, '!')),
-                                Bool('l_%s_%s' % (id, leftid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
-                            Not(Bool('z_%s_%s_%s' % (leftid, j, k)))
-                        )
+                # ! (Not)
+                solver_1.add(
+                    Implies(
+                        And(
+                            Bool('x_%s_%s' % (id, '!')),
+                            Bool('l_%s_%s' % (id, leftid))
+                        ),  # ->
+                        Bool('z_%s_%s' % (id, j)) ==
+                        Not(Bool('z_%s_%s' % (leftid, j)))
                     )
+                )
 
-                    # X
-                    next_1, next_2 = suc_2(sample_entry, k)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, 'X')),
-                                Bool('l_%s_%s' % (id, leftid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
-                            Bool('z_%s_%s_%s' % (leftid, next_1, next_2))
-                        )
+                # X
+                next_id = row['next_id']
+                solver_1.add(
+                    Implies(
+                        And(
+                            Bool('x_%s_%s' % (id, 'X')),
+                            Bool('l_%s_%s' % (id, leftid))
+                        ),  # ->
+                        Bool('z_%s_%s' % (id, j)) ==
+                        Bool('z_%s_%s' % (leftid, next_id))
                     )
-
-                    # F
+                )
+                # F
+                if row['bmc'] == 1:
                     solver_1.add(
                         Implies(
                             And(
                                 Bool('x_%s_%s' % (id, 'F')),
                                 Bool('l_%s_%s' % (id, leftid))
                             ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
+                            Bool('z_%s_%s' % (id, j)) ==
                             Or(
-                                Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                Bool('z_%s_%s_%s' % (id, next_1, next_2))
+                               Bool('z_%s_%s' % (leftid, j)),
+                               Bool('z_%s_%s' % (id, next_id))
+                            )
+                        )
+                    )
+                else:   # k == len(trace) - 1
+                    solver_1.add(
+                        Implies(
+                            And(
+                                  Bool('x_%s_%s' % (id, 'F')),
+                                  Bool('l_%s_%s' % (id, leftid))
+                            ),  # ->
+                            Bool('z_%s_%s' % (id, j)) ==
+                            Or(
+                                [
+                                   Bool('z_%s_%s' % (leftid, f))
+                                   for f in future_positions(ntable, j)
+                                ]
                             )
                         )
                     )
 
-                    # G
+                # G
+                if row['bmc'] == 1:
                     solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, 'G')),
-                                Bool('l_%s_%s' % (id, leftid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
-                            And(
-                                Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                Bool('z_%s_%s_%s' % (id, next_1, next_2))
-                            )
-                        )
-                    )
-            for suffix_entry in suffix_table:
-                s = suffix_entry["sid"]
-                trace = suffix_entry["u"] + suffix_entry["v"]
-
-                for k in range(len(trace)):
-                    # ! (Not)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, '!')),
-                                Bool('l_%s_%s' % (id, leftid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, s, k)) ==
-                            Not(Bool('z_%s_%s_%s' % (leftid, s, k)))
-                        )
-                    )
-
-                    # X
-                    next = suc_1(suffix_entry["u"], suffix_entry["v"], k)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, 'X')),
-                                Bool('l_%s_%s' % (id, leftid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, s, k)) ==
-                            Bool('z_%s_%s_%s' % (leftid, s, next))
-                        )
-                    )
-                    # F
-                    if k < len(trace) - 1:
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, 'F')),
+                         Implies(
+                             And(
+                                    Bool('x_%s_%s' % (id, 'G')),
                                     Bool('l_%s_%s' % (id, leftid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                Or(
-                                    Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                    Bool('z_%s_%s_%s' % (id, s, next))
-                                )
-                            )
-                        )
-                    else:   # k == len(trace) - 1
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, 'F')),
-                                    Bool('l_%s_%s' % (id, leftid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                Or(
-                                    [
-                                        Bool('z_%s_%s_%s' % (leftid, s, f))
-                                        for f in range(len(suffix_entry["u"]), len(trace))
-                                    ]
-                                )
-                            )
-                        )
-
-                    # G
-                    if k < len(trace) - 1:
+                             ),  # ->
+                             Bool('z_%s_%s' % (id, j)) ==
+                             And(
+                                    Bool('z_%s_%s' % (leftid, j)),
+                                    Bool('z_%s_%s' % (id, next_id))
+                             )
+                         )
+                    )
+                else:  # k == len(trace) - 1
                         solver_1.add(
                             Implies(
                                 And(
                                     Bool('x_%s_%s' % (id, 'G')),
                                     Bool('l_%s_%s' % (id, leftid))
                                 ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                And(
-                                    Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                    Bool('z_%s_%s_%s' % (id, s, next))
-                                )
-                            )
-                        )
-                    else:  # k == len(trace) - 1
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, 'G')),
-                                    Bool('l_%s_%s' % (id, leftid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
+                                Bool('z_%s_%s' % (id, j)) ==
                                 And(
                                     [
-                                        Bool('z_%s_%s_%s' % (leftid, s, f))
-                                        for f in range(len(suffix_entry["u"]), len(trace))
+                                        Bool('z_%s_%s' % (leftid, f))
+                                        for f in future_positions(ntable, j)
                                     ]
                                 )
                             )
@@ -349,61 +271,60 @@ def build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, f
 
             for rightid in range(id + 1, last_node_id):
                 # binary operators
-                for sample_entry in sample_table:
-                    j = sample_entry["id"]
-                    trace = sample_entry["prefix"]
+                for row in ntable:
+                    j = row["id"]
 
-                    for k in range(len(trace)):
-                        # & (And)
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, '&')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, rightid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, j, k)) ==
-                                And(
-                                    Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                    Bool('z_%s_%s_%s' % (rightid, j, k))
-                                )
+                    # & (And)
+                    solver_1.add(
+                        Implies(
+                            And(
+                                Bool('x_%s_%s' % (id, '&')),
+                                Bool('l_%s_%s' % (id, leftid)),
+                                Bool('r_%s_%s' % (id, rightid))
+                            ),  # ->
+                            Bool('z_%s_%s' % (id, j)) ==
+                            And(
+                                Bool('z_%s_%s' % (leftid, j)),
+                                Bool('z_%s_%s' % (rightid, j))
                             )
                         )
+                    )
 
-                        # | (Or)
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, '|')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, rightid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, j, k)) ==
-                                Or(
-                                    Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                    Bool('z_%s_%s_%s' % (rightid, j, k))
-                                )
+                    # | (Or)
+                    solver_1.add(
+                        Implies(
+                            And(
+                                Bool('x_%s_%s' % (id, 'v')),
+                                Bool('l_%s_%s' % (id, leftid)),
+                                Bool('r_%s_%s' % (id, rightid))
+                            ),  # ->
+                            Bool('z_%s_%s' % (id, j)) ==
+                            Or(
+                                Bool('z_%s_%s' % (leftid, j)),
+                                Bool('z_%s_%s' % (rightid, j))
                             )
                         )
+                    )
 
-                        # ->
-                        solver_1.add(
+                    # ->
+                    solver_1.add(
+                        Implies(
+                            And(
+                                Bool('x_%s_%s' % (id, '->')),
+                                Bool('l_%s_%s' % (id, leftid)),
+                                Bool('r_%s_%s' % (id, rightid))
+                            ),  # ->
+                            Bool('z_%s_%s' % (id, j)) ==
                             Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, '->')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, rightid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, j, k)) ==
-                                Implies(
-                                    Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                    Bool('z_%s_%s_%s' % (rightid, j, k))
-                                )
+                                Bool('z_%s_%s' % (leftid, j)),
+                                Bool('z_%s_%s' % (rightid, j))
                             )
                         )
+                    )
 
-                        # U
-                        next_1, next_2 = suc_2(sample_entry, k)
+                    # U
+                    next_id = row['next_id']
+                    if row['bmc'] == 1:
                         solver_1.add(
                             Implies(
                                 And(
@@ -411,112 +332,41 @@ def build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, f
                                     Bool('l_%s_%s' % (id, leftid)),
                                     Bool('r_%s_%s' % (id, rightid))
                                 ),  # ->
-                                Bool('z_%s_%s_%s' % (id, j, k)) ==
+                                Bool('z_%s_%s' % (id, j)) ==
                                 Or(
-                                    Bool('z_%s_%s_%s' % (rightid, j, k)),
-                                    And(
-                                        Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                        Bool('z_%s_%s_%s' % (id, next_1, next_2))
-                                    )
+                                   Bool('z_%s_%s' % (rightid, j)),
+                                   And(
+                                       Bool('z_%s_%s' % (leftid, j)),
+                                       Bool('z_%s_%s' % (id, next_id))
+                                   )
                                 )
                             )
                         )
-                for suffix_entry in suffix_table:
-                    s = suffix_entry["sid"]
-                    trace = suffix_entry["u"] + suffix_entry["v"]
-
-                    for k in range(len(trace)):
-                        # & (And)
+                        
+                    else:   # k == len(trace) - 1
                         solver_1.add(
                             Implies(
                                 And(
-                                    Bool('x_%s_%s' % (id, '&')),
+                                    Bool('x_%s_%s' % (id, 'U')),
                                     Bool('l_%s_%s' % (id, leftid)),
                                     Bool('r_%s_%s' % (id, rightid))
                                 ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                And(
-                                    Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                    Bool('z_%s_%s_%s' % (rightid, s, k))
-                                )
-                            )
-                        )
-
-                        # | (Or)
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, '|')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, rightid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
+                                Bool('z_%s_%s' % (id, j)) ==
                                 Or(
-                                    Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                    Bool('z_%s_%s_%s' % (rightid, s, k))
-                                )
-                            )
-                        )
-
-                        # ->
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, '->')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, rightid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                Implies(
-                                    Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                    Bool('z_%s_%s_%s' % (rightid, s, k))
-                                )
-                            )
-                        )
-
-                        # U
-                        next = suc_1(suffix_entry["u"], suffix_entry["v"], k)
-                        if k < len(trace) - 1:
-                            solver_1.add(
-                                Implies(
-                                    And(
-                                        Bool('x_%s_%s' % (id, 'U')),
-                                        Bool('l_%s_%s' % (id, leftid)),
-                                        Bool('r_%s_%s' % (id, rightid))
-                                    ),  # ->
-                                    Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                    Or(
-                                        Bool('z_%s_%s_%s' % (rightid, s, k)),
+                                    [
                                         And(
-                                            Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                            Bool('z_%s_%s_%s' % (id, s, next))
+                                            [Bool('z_%s_%s' % (rightid, f))] +
+                                            [
+                                               Bool('z_%s_%s' % (leftid, b))
+                                               for b in BET_POS(ntable, j, f)
+                                            ]
                                         )
-                                    )
+                                        for f in future_positions(ntable, j)
+                                    ]
                                 )
                             )
-                        else:   # k == len(trace) - 1
-                            solver_1.add(
-                                Implies(
-                                    And(
-                                        Bool('x_%s_%s' % (id, 'U')),
-                                        Bool('l_%s_%s' % (id, leftid)),
-                                        Bool('r_%s_%s' % (id, rightid))
-                                    ),  # ->
-                                    Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                    Or(
-                                        [
-                                            And(
-                                                [Bool('z_%s_%s_%s' % (rightid, s, k_p))] +
-                                                [
-                                                    Bool('z_%s_%s_%s' % (leftid, s, k_pp))
-                                                    for k_pp in BET_1(suffix_entry["u"], suffix_entry["v"], k, k_p)
-                                                ]
-                                            )
-                                            for k_p in range(len(suffix_entry["u"]), len(trace))
-                                        ]
-                                    )
-                                )
-                            )
+                        )              
+
 # ----------------------------------------
     # start looping
     while num_nodes < finalSize:
@@ -559,45 +409,25 @@ def build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, f
 
             # evaluation for atomic proposition
             for ap in alphabet:
-                for sample_entry in sample_table:
-                    j = sample_entry["id"]
-                    trace = sample_entry["prefix"]
+                for row in ntable:
+                    j = row["id"]
+                    trace = row['u'] if row['u'] != [] else row['v']
 
-                    for k in range(len(trace)):
-                        if trace[k][sample.letter2pos[ap]] == 1:
-                            solver_1.add(
-                                Implies(
-                                    Bool('x_%s_%s' % (id, ap)),  # ->
-                                    Bool('z_%s_%s_%s' % (id, j, k))
-                                )
-                            )
-                        else:
-                            solver_1.add(
-                                Implies(
-                                    Bool('x_%s_%s' % (id, ap)),  # ->
-                                    Not(Bool('z_%s_%s_%s' % (id, j, k)))
-                                )
-                            )
+                    if trace[0][sample.letter2pos[ap]] == 1:
+                        solver_1.add(
+                           Implies(
+                              Bool('x_%s_%s' % (id, ap)),  # ->
+                              Bool('z_%s_%s' % (id, j))
+                           )
+                        )
+                    else:
+                        solver_1.add(
+                           Implies(
+                               Bool('x_%s_%s' % (id, ap)),  # ->
+                               Not(Bool('z_%s_%s' % (id, j)))
+                           )
+                        )
 
-                for suffix_entry in suffix_table:
-                    s = suffix_entry["sid"]
-                    trace = suffix_entry["u"] + suffix_entry["v"]
-
-                    for k in range(len(trace)):
-                        if trace[k][sample.letter2pos[ap]] == 1:
-                            solver_1.add(
-                                Implies(
-                                    Bool('x_%s_%s' % (id, ap)),  # ->
-                                    Bool('z_%s_%s_%s' % (id, s, k))
-                                )
-                            )
-                        else:
-                            solver_1.add(
-                                Implies(
-                                    Bool('x_%s_%s' % (id, ap)),  # ->
-                                    Not(Bool('z_%s_%s_%s' % (id, s, k)))
-                                )
-                            )
         # --------------------------
         # previously last node:
         # need to initialize all Constraints for this node:
@@ -657,315 +487,193 @@ def build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, f
             leftid = last_node_id
             rightid = last_node_id
 
-            for sample_entry in sample_table:
-                j = sample_entry["id"]
-                trace = sample_entry["prefix"]
-
-                for k in range(len(trace)):
-                    # ! (Not)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, '!')),
-                                Bool('l_%s_%s' % (id, leftid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
-                            Not(Bool('z_%s_%s_%s' % (leftid, j, k)))
-                        )
+            for row in ntable:
+                j = row["id"]
+                
+                # ! (Not)
+                solver_1.add(
+                    Implies(
+                        And(
+                            Bool('x_%s_%s' % (id, '!')),
+                            Bool('l_%s_%s' % (id, leftid))
+                        ),  # ->
+                        Bool('z_%s_%s' % (id, j)) ==
+                        Not(Bool('z_%s_%s' % (leftid, j)))
                     )
+                )
 
-                    # X
-                    next_1, next_2 = suc_2(sample_entry, k)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, 'X')),
-                                Bool('l_%s_%s' % (id, leftid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
-                            Bool('z_%s_%s_%s' % (leftid, next_1, next_2))
-                        )
+                # X
+                next_id = row['next_id']
+                solver_1.add(
+                    Implies(
+                        And(
+                            Bool('x_%s_%s' % (id, 'X')),
+                            Bool('l_%s_%s' % (id, leftid))
+                        ),  # ->
+                        Bool('z_%s_%s' % (id, j)) ==
+                        Bool('z_%s_%s' % (leftid, next_id))
                     )
+                )
 
-                    # F
+                # F
+
+                if row["bmc"] == 1:
                     solver_1.add(
                         Implies(
                             And(
                                 Bool('x_%s_%s' % (id, 'F')),
                                 Bool('l_%s_%s' % (id, leftid))
                             ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
+                            Bool('z_%s_%s' % (id, j)) ==
                             Or(
-                                Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                Bool('z_%s_%s_%s' % (id, next_1, next_2))
+                                Bool('z_%s_%s' % (leftid, j)),
+                                Bool('z_%s_%s' % (id, next_id))
                             )
                         )
                     )
-
-                    # G
+                else:  # k == len(trace) - 1
                     solver_1.add(
                         Implies(
                             And(
-                                Bool('x_%s_%s' % (id, 'G')),
-                                Bool('l_%s_%s' % (id, leftid))
+                                 Bool('x_%s_%s' % (id, 'F')),
+                                 Bool('l_%s_%s' % (id, leftid))
                             ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
-                            And(
-                                Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                Bool('z_%s_%s_%s' % (id, next_1, next_2))
-                            )
-                        )
-                    )
-                    # & (And)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, '&')),
-                                Bool('l_%s_%s' % (id, leftid)),
-                                Bool('r_%s_%s' % (id, rightid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
-                            And(
-                                Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                Bool('z_%s_%s_%s' % (rightid, j, k))
-                            )
-                        )
-                    )
-
-                    # | (Or)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, '|')),
-                                Bool('l_%s_%s' % (id, leftid)),
-                                Bool('r_%s_%s' % (id, rightid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
+                            Bool('z_%s_%s' % (id, j)) ==
                             Or(
-                                Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                Bool('z_%s_%s_%s' % (rightid, j, k))
+                                [
+                                   Bool('z_%s_%s' % (leftid, f))
+                                   for f in future_positions(ntable, j)
+                                ]
                             )
                         )
                     )
 
-                    # ->
+
+                # G
+
+                if row["bmc"] == 1:
                     solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, '->')),
-                                Bool('l_%s_%s' % (id, leftid)),
-                                Bool('r_%s_%s' % (id, rightid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
-                            Implies(
-                                Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                Bool('z_%s_%s_%s' % (rightid, j, k))
-                            )
-                        )
-                    )
-
-                    # U
-                    next_1, next_2 = suc_2(sample_entry, k)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, 'U')),
-                                Bool('l_%s_%s' % (id, leftid)),
-                                Bool('r_%s_%s' % (id, rightid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
-                            Or(
-                                Bool('z_%s_%s_%s' % (rightid, j, k)),
-                                And(
-                                    Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                    Bool('z_%s_%s_%s' % (id, next_1, next_2))
-                                )
-                            )
-                        )
-                    )
-            for suffix_entry in suffix_table:
-                s = suffix_entry["sid"]
-                trace = suffix_entry["u"] + suffix_entry["v"]
-
-                for k in range(len(trace)):
-                    # ! (Not)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, '!')),
-                                Bool('l_%s_%s' % (id, leftid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, s, k)) ==
-                            Not(Bool('z_%s_%s_%s' % (leftid, s, k)))
-                        )
-                    )
-
-                    # X
-                    next = suc_1(suffix_entry["u"], suffix_entry["v"], k)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, 'X')),
-                                Bool('l_%s_%s' % (id, leftid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, s, k)) ==
-                            Bool('z_%s_%s_%s' % (leftid, s, next))
-                        )
-                    )
-                    # F
-                    if k < len(trace) - 1:
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, 'F')),
-                                    Bool('l_%s_%s' % (id, leftid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                Or(
-                                    Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                    Bool('z_%s_%s_%s' % (id, s, next))
-                                )
-                            )
-                        )
-                    else:  # k == len(trace) - 1
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, 'F')),
-                                    Bool('l_%s_%s' % (id, leftid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                Or(
-                                    [
-                                        Bool('z_%s_%s_%s' % (leftid, s, f))
-                                        for f in range(len(suffix_entry["u"]), len(trace))
-                                    ]
-                                )
-                            )
-                        )
-
-                    # G
-                    if k < len(trace) - 1:
-                        solver_1.add(
                             Implies(
                                 And(
                                     Bool('x_%s_%s' % (id, 'G')),
                                     Bool('l_%s_%s' % (id, leftid))
                                 ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
+                                Bool('z_%s_%s' % (id, j)) ==
                                 And(
-                                    Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                    Bool('z_%s_%s_%s' % (id, s, next))
+                                    Bool('z_%s_%s' % (leftid, j)),
+                                    Bool('z_%s_%s' % (id, next_id))
                                 )
                             )
-                        )
-                    else:  # k == len(trace) - 1
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, 'G')),
-                                    Bool('l_%s_%s' % (id, leftid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                And(
-                                    [
-                                        Bool('z_%s_%s_%s' % (leftid, s, f))
-                                        for f in range(len(suffix_entry["u"]), len(trace))
-                                    ]
-                                )
-                            )
-                        )
-                    # & (And)
+                    )
+                else:  # k == len(trace) - 1
                     solver_1.add(
                         Implies(
                             And(
-                                Bool('x_%s_%s' % (id, '&')),
-                                Bool('l_%s_%s' % (id, leftid)),
-                                Bool('r_%s_%s' % (id, rightid))
+                                  Bool('x_%s_%s' % (id, 'G')),
+                                  Bool('l_%s_%s' % (id, leftid))
                             ),  # ->
-                            Bool('z_%s_%s_%s' % (id, s, k)) ==
+                            Bool('z_%s_%s' % (id, j)) ==
                             And(
-                                Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                Bool('z_%s_%s_%s' % (rightid, s, k))
+                                 [
+                                    Bool('z_%s_%s' % (leftid, f))
+                                    for f in future_positions(ntable, j)
+                                 ]
                             )
                         )
                     )
 
-                    # | (Or)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, '|')),
-                                Bool('l_%s_%s' % (id, leftid)),
-                                Bool('r_%s_%s' % (id, rightid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, s, k)) ==
-                            Or(
-                                Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                Bool('z_%s_%s_%s' % (rightid, s, k))
-                            )
+                # & (And)
+                solver_1.add(
+                    Implies(
+                        And(
+                            Bool('x_%s_%s' % (id, '&')),
+                            Bool('l_%s_%s' % (id, leftid)),
+                            Bool('r_%s_%s' % (id, rightid))
+                        ),  # ->
+                        Bool('z_%s_%s' % (id, j)) ==
+                        And(
+                            Bool('z_%s_%s' % (leftid, j)),
+                            Bool('z_%s_%s' % (rightid, j))
                         )
                     )
+                )
 
-                    # ->
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, '->')),
-                                Bool('l_%s_%s' % (id, leftid)),
-                                Bool('r_%s_%s' % (id, rightid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, s, k)) ==
-                            Implies(
-                                Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                Bool('z_%s_%s_%s' % (rightid, s, k))
-                            )
+                # | (Or)
+                solver_1.add(
+                    Implies(
+                        And(
+                            Bool('x_%s_%s' % (id, 'v')),
+                            Bool('l_%s_%s' % (id, leftid)),
+                            Bool('r_%s_%s' % (id, rightid))
+                        ),  # ->
+                        Bool('z_%s_%s' % (id, j)) ==
+                        Or(
+                           Bool('z_%s_%s' % (leftid, j)),
+                           Bool('z_%s_%s' % (rightid, j))
                         )
                     )
+                )
 
-                    # U
-                    next = suc_1(suffix_entry["u"], suffix_entry["v"], k)
-                    if k < len(trace) - 1:
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, 'U')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, rightid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                Or(
-                                    Bool('z_%s_%s_%s' % (rightid, s, k)),
-                                    And(
-                                        Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                        Bool('z_%s_%s_%s' % (id, s, next))
-                                    )
-                                )
-                            )
+                # ->
+                solver_1.add(
+                    Implies(
+                        And(
+                            Bool('x_%s_%s' % (id, '->')),
+                            Bool('l_%s_%s' % (id, leftid)),
+                            Bool('r_%s_%s' % (id, rightid))
+                        ),  # ->
+                        Bool('z_%s_%s' % (id, j)) ==
+                        Implies(
+                            Bool('z_%s_%s' % (leftid, j)),
+                            Bool('z_%s_%s' % (rightid, j))
                         )
-                    else:  # k == len(trace) - 1
-                        solver_1.add(
-                            Implies(
+                    )
+                )
+
+                # U
+                next_id = row['next_id']
+                if row["bmc"] == 1:
+                     solver_1.add(
+                         Implies(
+                             And(
+                                 Bool('x_%s_%s' % (id, 'U')),
+                                 Bool('l_%s_%s' % (id, leftid)),
+                                 Bool('r_%s_%s' % (id, rightid))
+                             ),  # ->
+                             Bool('z_%s_%s' % (id, j)) ==
+                             Or(
+                                Bool('z_%s_%s' % (rightid, j)),
                                 And(
-                                    Bool('x_%s_%s' % (id, 'U')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, rightid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                Or(
-                                    [
-                                        And(
-                                            [Bool('z_%s_%s_%s' % (rightid, s, k_p))] +
-                                            [
-                                                Bool('z_%s_%s_%s' % (leftid, s, k_pp))
-                                                for k_pp in BET_1(suffix_entry["u"], suffix_entry["v"], k, k_p)
-                                            ]
-                                        )
-                                        for k_p in range(len(suffix_entry["u"]), len(trace))
-                                    ]
+                                    Bool('z_%s_%s' % (leftid, j)),
+                                    Bool('z_%s_%s' % (id, next_id))
                                 )
-                            )
+                             )
+                         )
+                     )
+                else:  # k == len(trace) - 1
+                    solver_1.add(
+                        Implies(
+                           And(
+                               Bool('x_%s_%s' % (id, 'U')),
+                               Bool('l_%s_%s' % (id, leftid)),
+                               Bool('r_%s_%s' % (id, rightid))
+                           ),  # ->
+                           Bool('z_%s_%s' % (id, j)) ==
+                           Or(
+                               [
+                                  And(
+                                      [Bool('z_%s_%s' % (rightid, f))] +
+                                      [
+                                        Bool('z_%s_%s' % (leftid, b))
+                                        for b in BET_POS(ntable, j, f)
+                                      ]
+                                  )
+                                  for f in future_positions(ntable, j)
+                               ]
+                           )
                         )
+                    )
+            
 # --------------------------------------
         # all other nodes
         # it suffices to add:
@@ -1015,249 +723,215 @@ def build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, f
             # Constraints encoding evaluation
             # unary operators
             leftid = last_node_id
-            for sample_entry in sample_table:
-                j = sample_entry["id"]
-                trace = sample_entry["prefix"]
+            for row in ntable:
+                j = row["id"]
 
-                for k in range(len(trace)):
-                    # ! (Not)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, '!')),
-                                Bool('l_%s_%s' % (id, leftid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
-                            Not(Bool('z_%s_%s_%s' % (leftid, j, k)))
-                        )
+                # ! (Not)
+                solver_1.add(
+                    Implies(
+                        And(
+                            Bool('x_%s_%s' % (id, '!')),
+                            Bool('l_%s_%s' % (id, leftid))
+                        ),  # ->
+                        Bool('z_%s_%s' % (id, j)) ==
+                        Not(Bool('z_%s_%s' % (leftid, j)))
                     )
+                )
 
-                    # X
-                    next_1, next_2 = suc_2(sample_entry, k)
-                    solver_1.add(
-                        Implies(
-                            And(
-                                Bool('x_%s_%s' % (id, 'X')),
-                                Bool('l_%s_%s' % (id, leftid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
-                            Bool('z_%s_%s_%s' % (leftid, next_1, next_2))
-                        )
+                # X
+                next_id = row['next_id']
+                solver_1.add(
+                    Implies(
+                        And(
+                            Bool('x_%s_%s' % (id, 'X')),
+                            Bool('l_%s_%s' % (id, leftid))
+                        ),  # ->
+                        Bool('z_%s_%s' % (id, j)) ==
+                        Bool('z_%s_%s' % (leftid, next_id))
                     )
+                )
 
-                    # F
+                # F
+                if row["bmc"] == 1:
                     solver_1.add(
                         Implies(
                             And(
                                 Bool('x_%s_%s' % (id, 'F')),
                                 Bool('l_%s_%s' % (id, leftid))
                             ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
+                            Bool('z_%s_%s' % (id, j)) ==
                             Or(
-                                Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                Bool('z_%s_%s_%s' % (id, next_1, next_2))
+                               Bool('z_%s_%s' % (leftid, j)),
+                               Bool('z_%s_%s' % (id, next_id))
                             )
                         )
                     )
-
-                    # G
+                else:  # k == len(trace) - 1
                     solver_1.add(
                         Implies(
                             And(
-                                Bool('x_%s_%s' % (id, 'G')),
-                                Bool('l_%s_%s' % (id, leftid))
+                                 Bool('x_%s_%s' % (id, 'F')),
+                                 Bool('l_%s_%s' % (id, leftid))
                             ),  # ->
-                            Bool('z_%s_%s_%s' % (id, j, k)) ==
-                            And(
-                                Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                Bool('z_%s_%s_%s' % (id, next_1, next_2))
+                            Bool('z_%s_%s' % (id, j)) ==
+                            Or(
+                                [
+                                   Bool('z_%s_%s' % (leftid, f))
+                                   for f in future_positions(ntable, j)
+                                ]
                             )
                         )
                     )
-            for suffix_entry in suffix_table:
-                s = suffix_entry["sid"]
-                trace = suffix_entry["u"] + suffix_entry["v"]
 
-                for k in range(len(trace)):
-                    # ! (Not)
+                # G
+
+                if row["bmc"] == 1:
                     solver_1.add(
                         Implies(
                             And(
-                                Bool('x_%s_%s' % (id, '!')),
-                                Bool('l_%s_%s' % (id, leftid))
+                                 Bool('x_%s_%s' % (id, 'G')),
+                                 Bool('l_%s_%s' % (id, leftid))
                             ),  # ->
-                            Bool('z_%s_%s_%s' % (id, s, k)) ==
-                            Not(Bool('z_%s_%s_%s' % (leftid, s, k)))
-                        )
-                    )
-
-                    # X
-                    next = suc_1(suffix_entry["u"], suffix_entry["v"], k)
-                    solver_1.add(
-                        Implies(
+                            Bool('z_%s_%s' % (id, j)) ==
                             And(
-                                Bool('x_%s_%s' % (id, 'X')),
-                                Bool('l_%s_%s' % (id, leftid))
-                            ),  # ->
-                            Bool('z_%s_%s_%s' % (id, s, k)) ==
-                            Bool('z_%s_%s_%s' % (leftid, s, next))
+                                 Bool('z_%s_%s' % (leftid, j)),
+                                 Bool('z_%s_%s' % (id, next_id))
+                            )
                         )
                     )
-                    # F
-                    if k < len(trace) - 1:
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, 'F')),
-                                    Bool('l_%s_%s' % (id, leftid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                Or(
-                                    Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                    Bool('z_%s_%s_%s' % (id, s, next))
-                                )
-                            )
-                        )
-                    else:  # k == len(trace) - 1
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, 'F')),
-                                    Bool('l_%s_%s' % (id, leftid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                Or(
-                                    [
-                                        Bool('z_%s_%s_%s' % (leftid, s, f))
-                                        for f in range(len(suffix_entry["u"]), len(trace))
-                                    ]
-                                )
-                            )
-                        )
-
-                    # G
-                    if k < len(trace) - 1:
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, 'G')),
-                                    Bool('l_%s_%s' % (id, leftid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                And(
-                                    Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                    Bool('z_%s_%s_%s' % (id, s, next))
-                                )
-                            )
-                        )
-                    else:  # k == len(trace) - 1
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, 'G')),
-                                    Bool('l_%s_%s' % (id, leftid))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                And(
-                                    [
-                                        Bool('z_%s_%s_%s' % (leftid, s, f))
-                                        for f in range(len(suffix_entry["u"]), len(trace))
-                                    ]
-                                )
-                            )
-                        )
+                else:  # k == len(trace) - 1
+                     solver_1.add(
+                         Implies(
+                             And(
+                                  Bool('x_%s_%s' % (id, 'G')),
+                                  Bool('l_%s_%s' % (id, leftid))
+                             ),  # ->
+                             Bool('z_%s_%s' % (id, j)) ==
+                             And(
+                                 [
+                                    Bool('z_%s_%s' % (leftid, f))
+                                    for f in future_positions(ntable, j)
+                                 ]
+                             )
+                         )
+                     )
+                     
             # binary operators
             for other_id in range(id+1, last_node_id + 1):
                 leftid = last_node_id
-                for sample_entry in sample_table:
-                    j = sample_entry["id"]
-                    trace = sample_entry["prefix"]
 
-                    for k in range(len(trace)):
-                        # & (And)
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, '&')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, other_id))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, j, k)) ==
-                                And(
-                                    Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                    Bool('z_%s_%s_%s' % (other_id, j, k))
-                                )
+                for row in ntable:
+                    j = row["id"]
+                    # & (And)
+                    solver_1.add(
+                        Implies(
+                            And(
+                                Bool('x_%s_%s' % (id, '&')),
+                                Bool('l_%s_%s' % (id, leftid)),
+                                Bool('r_%s_%s' % (id, other_id))
+                            ),  # ->
+                            Bool('z_%s_%s' % (id, j)) ==
+                            And(
+                                Bool('z_%s_%s' % (leftid, j)),
+                                Bool('z_%s_%s' % (other_id, j))
                             )
                         )
+                    )
 
-                        # | (Or)
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, '|')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, other_id))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, j, k)) ==
-                                Or(
-                                    Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                    Bool('z_%s_%s_%s' % (other_id, j, k))
-                                )
+                    # | (Or)
+                    solver_1.add(
+                        Implies(
+                            And(
+                                Bool('x_%s_%s' % (id, 'v')),
+                                Bool('l_%s_%s' % (id, leftid)),
+                                Bool('r_%s_%s' % (id, other_id))
+                            ),  # ->
+                            Bool('z_%s_%s' % (id, j)) ==
+                            Or(
+                               Bool('z_%s_%s' % (leftid, j)),
+                               Bool('z_%s_%s' % (other_id, j))
                             )
                         )
+                    )
 
-                        # ->
-                        solver_1.add(
+                    # ->
+                    solver_1.add(
+                        Implies(
+                            And(
+                                Bool('x_%s_%s' % (id, '->')),
+                                Bool('l_%s_%s' % (id, leftid)),
+                                Bool('r_%s_%s' % (id, other_id))
+                            ),  # ->
+                            Bool('z_%s_%s' % (id, j)) ==
                             Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, '->')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, other_id))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, j, k)) ==
-                                Implies(
-                                    Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                    Bool('z_%s_%s_%s' % (other_id, j, k))
-                                )
+                                Bool('z_%s_%s' % (leftid, j)),
+                                Bool('z_%s_%s' % (other_id, j))
                             )
                         )
+                    )
 
-                        # U
-                        next_1, next_2 = suc_2(sample_entry, k)
-                        solver_1.add(
-                            Implies(
-                                And(
-                                    Bool('x_%s_%s' % (id, 'U')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, other_id))
-                                ),  # ->
-                                Bool('z_%s_%s_%s' % (id, j, k)) ==
-                                Or(
-                                    Bool('z_%s_%s_%s' % (other_id, j, k)),
+                    # U
+                    next_id=row['next_id']
+                    if row["bmc"] == 1:
+                         solver_1.add(
+                             Implies(
+                                 And(
+                                     Bool('x_%s_%s' % (id, 'U')),
+                                     Bool('l_%s_%s' % (id, leftid)),
+                                     Bool('r_%s_%s' % (id, other_id))
+                                 ),  # ->
+                                 Bool('z_%s_%s' % (id, j)) ==
+                                 Or(
+                                    Bool('z_%s_%s' % (other_id, j)),
                                     And(
-                                        Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                        Bool('z_%s_%s_%s' % (id, next_1, next_2))
+                                        Bool('z_%s_%s' % (leftid, j)),
+                                        Bool('z_%s_%s' % (id, next_id))
                                     )
-                                )
-                            )
-                        )
-                for suffix_entry in suffix_table:
-                    s = suffix_entry["sid"]
-                    trace = suffix_entry["u"] + suffix_entry["v"]
+                                 )
+                             )
+                         )
+                    else:  # k == len(trace) - 1
+                         solver_1.add(
+                             Implies(
+                                 And(
+                                     Bool('x_%s_%s' % (id, 'U')),
+                                     Bool('l_%s_%s' % (id, leftid)),
+                                     Bool('r_%s_%s' % (id, other_id))
+                                 ),  # ->
+                                 Bool('z_%s_%s' % (id, j)) ==
+                                 Or(
+                                     [
+                                        And(
+                                            [Bool('z_%s_%s' % (other_id, f))] +
+                                            [
+                                               Bool('z_%s_%s' % (leftid, b))
+                                               for b in BET_POS(ntable, j, f)
+                                            ]
+                                        )
+                                        for f in future_positions(ntable, j)
+                                     ]
+                                 )
+                             )
+                         )
+                # ----------
+                # new node as right child
+                rightid = last_node_id
+                if other_id != rightid:
 
-                    for k in range(len(trace)):
+                    for row in ntable:
+                        j = row["id"]
                         # & (And)
                         solver_1.add(
                             Implies(
                                 And(
                                     Bool('x_%s_%s' % (id, '&')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, other_id))
+                                    Bool('l_%s_%s' % (id, other_id)),
+                                    Bool('r_%s_%s' % (id, rightid))
                                 ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
+                                Bool('z_%s_%s' % (id, j)) ==
                                 And(
-                                    Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                    Bool('z_%s_%s_%s' % (other_id, s, k))
+                                    Bool('z_%s_%s' % (other_id, j)),
+                                    Bool('z_%s_%s' % (rightid, j))
                                 )
                             )
                         )
@@ -1266,14 +940,14 @@ def build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, f
                         solver_1.add(
                             Implies(
                                 And(
-                                    Bool('x_%s_%s' % (id, '|')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, other_id))
+                                    Bool('x_%s_%s' % (id, 'v')),
+                                    Bool('l_%s_%s' % (id, other_id)),
+                                    Bool('r_%s_%s' % (id, rightid))
                                 ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
+                                Bool('z_%s_%s' % (id, j)) ==
                                 Or(
-                                    Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                    Bool('z_%s_%s_%s' % (other_id, s, k))
+                                    Bool('z_%s_%s' % (other_id, j)),
+                                    Bool('z_%s_%s' % (rightid, j))
                                 )
                             )
                         )
@@ -1283,33 +957,33 @@ def build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, f
                             Implies(
                                 And(
                                     Bool('x_%s_%s' % (id, '->')),
-                                    Bool('l_%s_%s' % (id, leftid)),
-                                    Bool('r_%s_%s' % (id, other_id))
+                                    Bool('l_%s_%s' % (id, other_id)),
+                                    Bool('r_%s_%s' % (id, rightid))
                                 ),  # ->
-                                Bool('z_%s_%s_%s' % (id, s, k)) ==
+                                Bool('z_%s_%s' % (id, j)) ==
                                 Implies(
-                                    Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                    Bool('z_%s_%s_%s' % (other_id, s, k))
+                                    Bool('z_%s_%s' % (other_id, j)),
+                                    Bool('z_%s_%s' % (rightid, j))
                                 )
                             )
                         )
 
                         # U
-                        next = suc_1(suffix_entry["u"], suffix_entry["v"], k)
-                        if k < len(trace) - 1:
+                        next_id=row['next_id']
+                        if row["bmc"] == 1:
                             solver_1.add(
                                 Implies(
                                     And(
                                         Bool('x_%s_%s' % (id, 'U')),
-                                        Bool('l_%s_%s' % (id, leftid)),
-                                        Bool('r_%s_%s' % (id, other_id))
+                                        Bool('l_%s_%s' % (id, other_id)),
+                                        Bool('r_%s_%s' % (id, rightid))
                                     ),  # ->
-                                    Bool('z_%s_%s_%s' % (id, s, k)) ==
+                                    Bool('z_%s_%s' % (id, j)) ==
                                     Or(
-                                        Bool('z_%s_%s_%s' % (other_id, s, k)),
+                                        Bool('z_%s_%s' % (rightid, j)),
                                         And(
-                                            Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                            Bool('z_%s_%s_%s' % (id, s, next))
+                                            Bool('z_%s_%s' % (other_id, j)),
+                                            Bool('z_%s_%s' % (id, next_id))
                                         )
                                     )
                                 )
@@ -1319,203 +993,66 @@ def build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, f
                                 Implies(
                                     And(
                                         Bool('x_%s_%s' % (id, 'U')),
-                                        Bool('l_%s_%s' % (id, leftid)),
-                                        Bool('r_%s_%s' % (id, other_id))
+                                        Bool('l_%s_%s' % (id, other_id)),
+                                        Bool('r_%s_%s' % (id, rightid))
                                     ),  # ->
-                                    Bool('z_%s_%s_%s' % (id, s, k)) ==
+                                    Bool('z_%s_%s' % (id, j)) ==
                                     Or(
                                         [
-                                            And(
-                                                [Bool('z_%s_%s_%s' % (other_id, s, k_p))] +
-                                                [
-                                                    Bool('z_%s_%s_%s' % (leftid, s, k_pp))
-                                                    for k_pp in BET_1(suffix_entry["u"], suffix_entry["v"], k, k_p)
-                                                ]
-                                            )
-                                            for k_p in range(len(suffix_entry["u"]), len(trace))
+                                           And(
+                                               [Bool('z_%s_%s' % (rightid, f))] +
+                                               [
+                                                  Bool('z_%s_%s' % (other_id, b))
+                                                  for b in BET_POS(ntable, j, f)
+                                               ]
+                                           )
+                                           for f in future_positions(ntable, j)
                                         ]
                                     )
                                 )
                             )
-                # ----------
-                # new node as right child
-                rightid = last_node_id
-                if other_id != rightid:
-                    for sample_entry in sample_table:
-                        j = sample_entry["id"]
-                        trace = sample_entry["prefix"]
-
-                        for k in range(len(trace)):
-                            # & (And)
-                            solver_1.add(
-                                Implies(
-                                    And(
-                                        Bool('x_%s_%s' % (id, '&')),
-                                        Bool('l_%s_%s' % (id, other_id)),
-                                        Bool('r_%s_%s' % (id, rightid))
-                                    ),  # ->
-                                    Bool('z_%s_%s_%s' % (id, j, k)) ==
-                                    And(
-                                        Bool('z_%s_%s_%s' % (other_id, j, k)),
-                                        Bool('z_%s_%s_%s' % (rightid, j, k))
-                                    )
-                                )
-                            )
-
-                            # | (Or)
-                            solver_1.add(
-                                Implies(
-                                    And(
-                                        Bool('x_%s_%s' % (id, '|')),
-                                        Bool('l_%s_%s' % (id, other_id)),
-                                        Bool('r_%s_%s' % (id, rightid))
-                                    ),  # ->
-                                    Bool('z_%s_%s_%s' % (id, j, k)) ==
-                                    Or(
-                                        Bool('z_%s_%s_%s' % (other_id, j, k)),
-                                        Bool('z_%s_%s_%s' % (rightid, j, k))
-                                    )
-                                )
-                            )
-
-                            # ->
-                            solver_1.add(
-                                Implies(
-                                    And(
-                                        Bool('x_%s_%s' % (id, '->')),
-                                        Bool('l_%s_%s' % (id, other_id)),
-                                        Bool('r_%s_%s' % (id, rightid))
-                                    ),  # ->
-                                    Bool('z_%s_%s_%s' % (id, j, k)) ==
-                                    Implies(
-                                        Bool('z_%s_%s_%s' % (other_id, j, k)),
-                                        Bool('z_%s_%s_%s' % (rightid, j, k))
-                                    )
-                                )
-                            )
-
-                            # U
-                            next_1, next_2 = suc_2(sample_entry, k)
-                            solver_1.add(
-                                Implies(
-                                    And(
-                                        Bool('x_%s_%s' % (id, 'U')),
-                                        Bool('l_%s_%s' % (id, other_id)),
-                                        Bool('r_%s_%s' % (id, rightid))
-                                    ),  # ->
-                                    Bool('z_%s_%s_%s' % (id, j, k)) ==
-                                    Or(
-                                        Bool('z_%s_%s_%s' % (rightid, j, k)),
-                                        And(
-                                            Bool('z_%s_%s_%s' % (other_id, j, k)),
-                                            Bool('z_%s_%s_%s' % (id, next_1, next_2))
-                                        )
-                                    )
-                                )
-                            )
-                    for suffix_entry in suffix_table:
-                        s = suffix_entry["sid"]
-                        trace = suffix_entry["u"] + suffix_entry["v"]
-
-                        for k in range(len(trace)):
-                            # & (And)
-                            solver_1.add(
-                                Implies(
-                                    And(
-                                        Bool('x_%s_%s' % (id, '&')),
-                                        Bool('l_%s_%s' % (id, other_id)),
-                                        Bool('r_%s_%s' % (id, rightid))
-                                    ),  # ->
-                                    Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                    And(
-                                        Bool('z_%s_%s_%s' % (other_id, s, k)),
-                                        Bool('z_%s_%s_%s' % (rightid, s, k))
-                                    )
-                                )
-                            )
-
-                            # | (Or)
-                            solver_1.add(
-                                Implies(
-                                    And(
-                                        Bool('x_%s_%s' % (id, '|')),
-                                        Bool('l_%s_%s' % (id, other_id)),
-                                        Bool('r_%s_%s' % (id, rightid))
-                                    ),  # ->
-                                    Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                    Or(
-                                        Bool('z_%s_%s_%s' % (other_id, s, k)),
-                                        Bool('z_%s_%s_%s' % (rightid, s, k))
-                                    )
-                                )
-                            )
-
-                            # ->
-                            solver_1.add(
-                                Implies(
-                                    And(
-                                        Bool('x_%s_%s' % (id, '->')),
-                                        Bool('l_%s_%s' % (id, other_id)),
-                                        Bool('r_%s_%s' % (id, rightid))
-                                    ),  # ->
-                                    Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                    Implies(
-                                        Bool('z_%s_%s_%s' % (other_id, s, k)),
-                                        Bool('z_%s_%s_%s' % (rightid, s, k))
-                                    )
-                                )
-                            )
-
-                            # U
-                            next = suc_1(suffix_entry["u"], suffix_entry["v"], k)
-                            if k < len(trace) - 1:
-                                solver_1.add(
-                                    Implies(
-                                        And(
-                                            Bool('x_%s_%s' % (id, 'U')),
-                                            Bool('l_%s_%s' % (id, other_id)),
-                                            Bool('r_%s_%s' % (id, rightid))
-                                        ),  # ->
-                                        Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                        Or(
-                                            Bool('z_%s_%s_%s' % (rightid, s, k)),
-                                            And(
-                                                Bool('z_%s_%s_%s' % (other_id, s, k)),
-                                                Bool('z_%s_%s_%s' % (id, s, next))
-                                            )
-                                        )
-                                    )
-                                )
-                            else:  # k == len(trace) - 1
-                                solver_1.add(
-                                    Implies(
-                                        And(
-                                            Bool('x_%s_%s' % (id, 'U')),
-                                            Bool('l_%s_%s' % (id, other_id)),
-                                            Bool('r_%s_%s' % (id, rightid))
-                                        ),  # ->
-                                        Bool('z_%s_%s_%s' % (id, s, k)) ==
-                                        Or(
-                                            [
-                                                And(
-                                                    [Bool('z_%s_%s_%s' % (rightid, s, k_p))] +
-                                                    [
-                                                        Bool('z_%s_%s_%s' % (other_id, s, k_pp))
-                                                        for k_pp in BET_1(suffix_entry["u"], suffix_entry["v"], k, k_p)
-                                                    ]
-                                                )
-                                                for k_p in range(len(suffix_entry["u"]), len(trace))
-                                            ]
-                                        )
-                                    )
-                                )
 # -------------------------------
         # Construct solver s = s1 + s2
         solver = Solver()
         solver.add(solver_1.assertions())
         solver.add(solver_2.assertions())
 
+        # Create output directory
+        output_dir='experiment_results/reports'
+        os.makedirs(output_dir, exist_ok=True) 
+
+        # creaté the combined goal for tactic
+        g = Goal()
+        g.add(solver_1.assertions())
+        g.add(solver_2.assertions())
+
+        # tactic reduces the problem into propositional CNF
+        tactic = Then('simplify', 'bit-blast', 'tseitin-cnf')
+        subgoal = tactic(g)
+        assert len(subgoal) == 1
+
+        # Extract clauses and convert to DIMACS format 
+        clauses = [str(c) for c in subgoal[0]]   
+        dimacs_string = to_dimacs(clauses)
+
         if solver.check() == z3.sat:
+            sat = True
+            result='SAT'            
+        else:
+            sat = False
+            result='UNSAT'
+
+        sketch_name = ''.join(['Q' if l == '?' else 'Imp' if l == '>' else 'Or' if l == 'v' else l for l in str(sketch)])
+
+        if generate_lib:
+            with open(f'{output_dir}/SMT_{sample_name}_{sketch_name}_{num_nodes}_{result}.smt2', 'w') as f1:
+                f1.write(solver.to_smt2())
+
+            with open(f'{output_dir}/DIMACS_{sample_name}_{sketch_name}_{num_nodes}_{result}.dimacs', 'w') as f2:
+                f2.write(dimacs_string)
+
+
+        if sat:
             # construct substitutions from model
             m = solver.model()
 
@@ -1523,7 +1060,7 @@ def build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, f
                 file = 'solution.txt'
                 f = open(file, 'w')
                 for var in m:
-                    f.write(str(var) + ', ' + str(is_true(m[e])) + '\n')
+                    f.write(str(var) + ', ' + str(is_true(m[var])) + '\n')
                 f.close()
 
             typ0_ids = sketch.get_type0Positions()
@@ -1537,7 +1074,7 @@ def build_solution_tree_suffix_bmc(sketch, sample_table, suffix_table, sample, f
                 substitutions.append(sub)
 
             for id in typ2_ids:
-                sub = (id, [op for op in ['&', '|', '->', 'U'] if z3.is_true(m[z3.Bool('x_%s_%s' % (id, op))])][0])
+                sub = (id, [op for op in ['&', 'v', '->', 'U'] if z3.is_true(m[z3.Bool('x_%s_%s' % (id, op))])][0])
                 substitutions.append(sub)
 
             LTL = sketch.substitute_sketch_type_1_2(substitutions)

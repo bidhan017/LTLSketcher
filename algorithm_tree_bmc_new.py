@@ -8,7 +8,7 @@ import os
 
 
 # import values of global variables
-generate_SMTlib = global_variables.generate_SMTlib
+generate_lib = global_variables.generate_lib
 print_output = global_variables.print_output
 print_model = global_variables.print_model
 maximumSize = global_variables.maximumSize
@@ -93,7 +93,7 @@ def build_solution_tree_bmc(sketch, sample, finalSize, sample_name):
     alphabet = sample.alphabet
 
     possible_labels = operators + alphabet
-    ##possible_labels: ['G', 'F', '!', 'X', '&', '|', 'U', '->', 'p']
+    ##possible_labels: ['G', 'F', '!', 'X', '&', 'v', 'U', '->', 'p']
     traces = sample.positive + sample.negative
 
     # initialize all type-0 placeholder but the last one (will be a leaf)
@@ -290,7 +290,7 @@ def build_solution_tree_bmc(sketch, sample, finalSize, sample_name):
                         solver_1.add(
                             Implies(
                                 And(
-                                    Bool('x_%s_%s' % (id, '|')),
+                                    Bool('x_%s_%s' % (id, 'v')),
                                     Bool('l_%s_%s' % (id, leftid)),
                                     Bool('r_%s_%s' % (id, rightid))
                                 ),  # ->
@@ -588,7 +588,7 @@ def build_solution_tree_bmc(sketch, sample, finalSize, sample_name):
                     solver_1.add(
                         Implies(
                             And(
-                                Bool('x_%s_%s' % (id, '|')),
+                                Bool('x_%s_%s' % (id, 'v')),
                                 Bool('l_%s_%s' % (id, leftid)),
                                 Bool('r_%s_%s' % (id, rightid))
                             ),  # ->
@@ -821,7 +821,7 @@ def build_solution_tree_bmc(sketch, sample, finalSize, sample_name):
                         solver_1.add(
                             Implies(
                                 And(
-                                    Bool('x_%s_%s' % (id, '|')),
+                                    Bool('x_%s_%s' % (id, 'v')),
                                     Bool('l_%s_%s' % (id, leftid)),
                                     Bool('r_%s_%s' % (id, other_id))
                                 ),  # ->
@@ -915,7 +915,7 @@ def build_solution_tree_bmc(sketch, sample, finalSize, sample_name):
                             solver_1.add(
                                 Implies(
                                     And(
-                                        Bool('x_%s_%s' % (id, '|')),
+                                        Bool('x_%s_%s' % (id, 'v')),
                                         Bool('l_%s_%s' % (id, other_id)),
                                         Bool('r_%s_%s' % (id, rightid))
                                     ),  # ->
@@ -1017,9 +1017,9 @@ def build_solution_tree_bmc(sketch, sample, finalSize, sample_name):
             sat = False
             result='UNSAT'
 
-        sketch_name = ''.join(['Q' if l == '?' else 'Imp' if l == '>' else 'Or' if l == '|' else l for l in str(sketch)])
+        sketch_name = ''.join(['Q' if l == '?' else 'Imp' if l == '>' else 'Or' if l == 'v' else l for l in str(sketch)])
 
-        if generate_SMTlib:
+        if generate_lib:
             with open(f'{output_dir}/SMT_{sample_name}_{sketch_name}_{num_nodes}_{result}.smt2', 'w') as f1:
                 f1.write(solver.to_smt2())
 
@@ -1048,7 +1048,7 @@ def build_solution_tree_bmc(sketch, sample, finalSize, sample_name):
                 substitutions.append(sub)
 
             for id in typ2_ids:
-                sub = (id, [op for op in ['&', '|', '->', 'U'] if z3.is_true(m[z3.Bool('x_%s_%s' % (id, op))])][0])
+                sub = (id, [op for op in ['&', 'v', '->', 'U'] if z3.is_true(m[z3.Bool('x_%s_%s' % (id, op))])][0])
                 substitutions.append(sub)
 
             LTL = sketch.substitute_sketch_type_1_2(substitutions)
