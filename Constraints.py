@@ -60,7 +60,7 @@ def semanticConstraints(solver, sketch, sample):
                     )
                 )
 
-            elif label == '|':
+            elif label == 'v':
                 solver.add(
                     Bool('z_%s_%s_%s' % (node_id, j, k)) ==
                     Or(
@@ -184,7 +184,7 @@ def semanticConstraints(solver, sketch, sample):
                 # placeholder is |
                 solver.add(
                     Implies(
-                        Bool('x_%s_|' % node_id),  # ->
+                        Bool('x_%s_v' % node_id),  # ->
                         Bool('z_%s_%s_%s' % (node_id, j, k)) ==
                         Or(
                             Bool('z_%s_%s_%s' % (leftid, j, k)),
@@ -237,7 +237,7 @@ def semanticConstraints(solver, sketch, sample):
         )
 
     elif '?b' in label:
-        X = [Bool('x_%s_%s' % (node_id, op)) for op in ['&', '|', '->', 'U']]
+        X = [Bool('x_%s_%s' % (node_id, op)) for op in ['&', 'v', '->', 'U']]
 
         # at least one operator and at most one
         solver.add(
@@ -313,7 +313,7 @@ def semanticConstraints_BMC(solver, sketch, sample):
                     )
                 )
 
-            elif label == '|':
+            elif label == 'v':
                 solver.add(
                     Bool('z_%s_%s_%s' % (node_id, j, k)) ==
                     Or(
@@ -490,7 +490,7 @@ def semanticConstraints_BMC(solver, sketch, sample):
                 # placeholder is |
                 solver.add(
                     Implies(
-                        Bool('x_%s_|' % node_id),  # ->
+                        Bool('x_%s_v' % node_id),  # ->
                         Bool('z_%s_%s_%s' % (node_id, j, k)) ==
                         Or(
                             Bool('z_%s_%s_%s' % (leftid, j, k)),
@@ -558,7 +558,7 @@ def semanticConstraints_BMC(solver, sketch, sample):
         )
 
     elif '?b' in label:
-        X = [Bool('x_%s_%s' % (node_id, op)) for op in ['&', '|', '->', 'U']]
+        X = [Bool('x_%s_%s' % (node_id, op)) for op in ['&', 'v', '->', 'U']]
 
         # at least one operator and at most one
         solver.add(
@@ -645,11 +645,11 @@ def semanticConstraints_suffix(solver, sketch, ntable, letter2pos):
                  )
             )
 
-    elif label == '|':
+    elif label == 'v':
         leftid = sketch.left.identifier
         rightid = sketch.right.identifier
         if print_debug:
-            print('Hello |')
+            print('Hello v')
 
         for row in ntable:
             j = row["id"]
@@ -787,7 +787,6 @@ def semanticConstraints_suffix(solver, sketch, ntable, letter2pos):
             )
 
             # placeholder is X
-            #next_1, next_2 = suc_2(sample_entry, k)
             solver.add(
                 Implies(
                     Bool('x_%s_X' % node_id),  # ->
@@ -826,7 +825,7 @@ def semanticConstraints_suffix(solver, sketch, ntable, letter2pos):
 
 
     elif '?b' in label:
-        X = [Bool('x_%s_%s' % (node_id, op)) for op in ['&', '|', '->', 'U']]
+        X = [Bool('x_%s_%s' % (node_id, op)) for op in ['&', 'v', '->', 'U']]
         if print_debug:
             print('Hello ?b')
         # at least one operator and at most one
@@ -862,7 +861,7 @@ def semanticConstraints_suffix(solver, sketch, ntable, letter2pos):
             # placeholder is |
             solver.add(
                 Implies(
-                    Bool('x_%s_|' % node_id),  # ->
+                    Bool('x_%s_v' % node_id),  # ->
                     Bool('z_%s_%s' % (node_id, j)) ==
                     Or(
                         Bool('z_%s_%s' % (leftid, j)),
@@ -911,7 +910,7 @@ def semanticConstraints_suffix(solver, sketch, ntable, letter2pos):
 # ---------------------------------------------------------------------------------------------------
 
 
-def semanticConstraints_suffix_BMC(solver, sketch, sample_table, suffix_table, letter2pos):
+def semanticConstraints_suffix_BMC(solver, sketch, ntable, letter2pos):
     """ Adds the semantic constraints to the solver if both BMC and suffix heuristic are used
 
         Parameters
@@ -934,313 +933,180 @@ def semanticConstraints_suffix_BMC(solver, sketch, sample_table, suffix_table, l
     if sketch._isLeaf() and '?' not in label:
         tracePosition = letter2pos[label]
 
-        for sample_entry in sample_table:
-            j = sample_entry["id"]
-            trace = sample_entry["prefix"]
+        for row in ntable:
+            j = row["id"]
+            trace = row['u'] if row['u'] != [] else row['v']
 
-            for k in range(len(trace)):
-                if trace[k][tracePosition] == 1:
-                    solver.add(
-                        Bool('z_%s_%s_%s' % (node_id, j, k))
-                    )
-                else:
-                    solver.add(
-                        Not(Bool('z_%s_%s_%s' % (node_id, j, k)))
-                    )
-
-        for suffix_entry in suffix_table:
-            s = suffix_entry["sid"]
-            trace = suffix_entry["u"] + suffix_entry["v"]
-
-            for k in range(len(trace)):
-                if trace[k][tracePosition] == 1:
-                    solver.add(
-                        Bool('z_%s_%s_%s' % (node_id, s, k))
-                    )
-                else:
-                    solver.add(
-                        Not(Bool('z_%s_%s_%s' % (node_id, s, k)))
-                    )
+            if trace[0][tracePosition] == 1:
+                solver.add(
+                Bool('z_%s_%s' % (node_id, j))
+                )
+            else:
+                solver.add(
+                      Not(Bool('z_%s_%s' % (node_id, j)))
+                )
 
     elif label == '!':
         leftid = sketch.left.identifier
 
-        for sample_entry in sample_table:
-            j = sample_entry["id"]
-            trace = sample_entry["prefix"]
+        for row in ntable:
+            j = row["id"]
 
-            for k in range(len(trace)):
-                solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, j, k)) ==
-                    Not(Bool('z_%s_%s_%s' % (leftid, j, k)))
-                )
+            solver.add(
+                 Bool('z_%s_%s' % (node_id, j)) ==
+                 Not(Bool('z_%s_%s' % (leftid, j)))
+            )
 
-        for suffix_entry in suffix_table:
-            s = suffix_entry["sid"]
-            trace = suffix_entry["u"] + suffix_entry["v"]
-
-            for k in range(len(trace)):
-                solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                    Not(Bool('z_%s_%s_%s' % (leftid, s, k)))
-                )
 
     elif label == '&':
         leftid = sketch.left.identifier
         rightid = sketch.right.identifier
 
-        for sample_entry in sample_table:
-            j = sample_entry["id"]
-            trace = sample_entry["prefix"]
+        for row in ntable:
+            j = row["id"]
+            
+            solver.add(
+                 Bool('z_%s_%s' % (node_id, j)) ==
+                 And(
+                     Bool('z_%s_%s' % (leftid, j)),
+                     Bool('z_%s_%s' % (rightid, j))
+                 )
+            )
 
-            for k in range(len(trace)):
-                solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, j, k)) ==
-                    And(
-                        Bool('z_%s_%s_%s' % (leftid, j, k)),
-                        Bool('z_%s_%s_%s' % (rightid, j, k))
-                    )
-                )
-
-        for suffix_entry in suffix_table:
-            s = suffix_entry["sid"]
-            trace = suffix_entry["u"] + suffix_entry["v"]
-
-            for k in range(len(trace)):
-                solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                    And(
-                        Bool('z_%s_%s_%s' % (leftid, s, k)),
-                        Bool('z_%s_%s_%s' % (rightid, s, k))
-                    )
-                )
-
-    elif label == '|':
+    elif label == 'v':
         leftid = sketch.left.identifier
         rightid = sketch.right.identifier
 
-        for sample_entry in sample_table:
-            j = sample_entry["id"]
-            trace = sample_entry["prefix"]
+        for row in ntable:
+            j = row["id"]
+ 
+            solver.add(
+                 Bool('z_%s_%s' % (node_id, j)) ==
+                 Or(
+                    Bool('z_%s_%s' % (leftid, j)),
+                    Bool('z_%s_%s' % (rightid, j))
+                 )
+            )
 
-            for k in range(len(trace)):
-                solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, j, k)) ==
-                    Or(
-                        Bool('z_%s_%s_%s' % (leftid, j, k)),
-                        Bool('z_%s_%s_%s' % (rightid, j, k))
-                    )
-                )
-
-        for suffix_entry in suffix_table:
-            s = suffix_entry["sid"]
-            trace = suffix_entry["u"] + suffix_entry["v"]
-
-            for k in range(len(trace)):
-                solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                    Or(
-                        Bool('z_%s_%s_%s' % (leftid, s, k)),
-                        Bool('z_%s_%s_%s' % (rightid, s, k))
-                    )
-                )
 
     elif label == '->':
         leftid = sketch.left.identifier
         rightid = sketch.right.identifier
 
-        for sample_entry in sample_table:
-            j = sample_entry["id"]
-            trace = sample_entry["prefix"]
+        for row in ntable:
+            j = row["id"]
+            
+            solver.add(
+                 Bool('z_%s_%s' % (node_id, j)) ==
+                 Implies(
+                     Bool('z_%s_%s' % (leftid, j)),
+                     Bool('z_%s_%s' % (rightid, j))
+                 )
+            )
 
-            for k in range(len(trace)):
-                solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, j, k)) ==
-                    Implies(
-                        Bool('z_%s_%s_%s' % (leftid, j, k)),
-                        Bool('z_%s_%s_%s' % (rightid, j, k))
-                    )
-                )
-
-        for suffix_entry in suffix_table:
-            s = suffix_entry["sid"]
-            trace = suffix_entry["u"] + suffix_entry["v"]
-
-            for k in range(len(trace)):
-                solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                    Implies(
-                        Bool('z_%s_%s_%s' % (leftid, s, k)),
-                        Bool('z_%s_%s_%s' % (rightid, s, k))
-                    )
-                )
 
     elif label == 'X':
         leftid = sketch.left.identifier
 
-        for sample_entry in sample_table:
-            j = sample_entry["id"]
-            trace = sample_entry["prefix"]
-
-            for k in range(len(trace)):
-                next_1, next_2 = suc_2(sample_entry, k)
-
-                solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, j, k)) ==
-                    Bool('z_%s_%s_%s' % (leftid, next_1, next_2))
-                )
-
-        for suffix_entry in suffix_table:
-            s = suffix_entry["sid"]
-            trace = suffix_entry["u"] + suffix_entry["v"]
-
-            for k in range(len(trace)):
-                next = suc_1(suffix_entry["u"], suffix_entry["v"], k)
-
-                solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                    Bool('z_%s_%s_%s' % (leftid, s, next))
-                )
+        for row in ntable:
+            j = row["id"]
+            next_id = row['next_id']
+            
+            solver.add(
+                Bool('z_%s_%s' % (node_id, j)) ==
+                Bool('z_%s_%s' % (leftid, next_id))
+            )
 
     elif label == 'F':
         leftid = sketch.left.identifier
 
-        for sample_entry in sample_table:
-            j = sample_entry["id"]
-            trace = sample_entry["prefix"]
-
-            for k in range(len(trace)):
-                next_1, next_2 = suc_2(sample_entry, k)
+        for row in ntable:
+            j = row["id"]
+            
+            if row["bmc"] == 1:
+                next_id = row['next_id']
                 solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, j, k)) ==
+                    Bool('z_%s_%s' % (node_id, j)) ==
                     Or(
-                        Bool('z_%s_%s_%s' % (leftid, j, k)),
-                        Bool('z_%s_%s_%s' % (node_id, next_1, next_2))
+                        Bool('z_%s_%s' % (leftid, j)),
+                        Bool('z_%s_%s' % (node_id, next_id))
                     )
                 )
 
-        for suffix_entry in suffix_table:
-            s = suffix_entry["sid"]
-            trace = suffix_entry["u"] + suffix_entry["v"]
-
-            for k in range(len(trace)-1):
-                next = suc_1(suffix_entry["u"], suffix_entry["v"], k)
-
+            else:
                 solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, s, k)) ==
+                    Bool('z_%s_%s' % (node_id, j)) ==
                     Or(
-                        Bool('z_%s_%s_%s' % (leftid, s, k)),
-                        Bool('z_%s_%s_%s' % (node_id, s, next))
+                        [
+                            Bool('z_%s_%s' % (leftid, f))
+                            for f in future_positions(ntable, j)
+                        ]
                     )
                 )
-
-            k = len(trace)-1
-            solver.add(
-                Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                Or(
-                    [
-                        Bool('z_%s_%s_%s' % (leftid, s, f))
-                        for f in FUT_1(suffix_entry["u"], suffix_entry["v"], k)
-                    ]
-                )
-            )
 
     elif label == 'G':
         leftid = sketch.left.identifier
 
-        for sample_entry in sample_table:
-            j = sample_entry["id"]
-            trace = sample_entry["prefix"]
+        for row in ntable:
+            j = row["id"]
 
-            for k in range(len(trace)):
-                next_1, next_2 = suc_2(sample_entry, k)
+            if row["bmc"] == 1:
+                next_id = row['next_id']
                 solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, j, k)) ==
+                    Bool('z_%s_%s' % (node_id, j)) ==
                     And(
-                        Bool('z_%s_%s_%s' % (leftid, j, k)),
-                        Bool('z_%s_%s_%s' % (node_id, next_1, next_2))
+                        Bool('z_%s_%s' % (leftid, j)),
+                        Bool('z_%s_%s' % (node_id, next_id))
                     )
                 )
 
-        for suffix_entry in suffix_table:
-            s = suffix_entry["sid"]
-            trace = suffix_entry["u"] + suffix_entry["v"]
-
-            for k in range(len(trace)-1):
-                next = suc_1(suffix_entry["u"], suffix_entry["v"], k)
-
+            else:
                 solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, s, k)) ==
+                    Bool('z_%s_%s' % (node_id, j)) ==
                     And(
-                        Bool('z_%s_%s_%s' % (leftid, s, k)),
-                        Bool('z_%s_%s_%s' % (node_id, s, next))
+                        [
+                            Bool('z_%s_%s' % (leftid, f))
+                            for f in future_positions(ntable, j)
+                        ]
                     )
                 )
-
-            k = len(trace)-1
-            solver.add(
-                Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                And(
-                    [
-                        Bool('z_%s_%s_%s' % (leftid, s, f))
-                        for f in FUT_1(suffix_entry["u"], suffix_entry["v"], k)
-                    ]
-                )
-            )
 
     elif label == 'U':
         leftid = sketch.left.identifier
         rightid = sketch.right.identifier
 
-        for sample_entry in sample_table:
-            j = sample_entry["id"]
-            trace = sample_entry["prefix"]
+        for row in ntable:
+            j = row["id"]
 
-            for k in range(len(trace)):
-                next_1, next_2 = suc_2(sample_entry, k)
+            if row["bmc"] == 1:
+                next_id = row['next_id']
                 solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, j, k)) ==
+                    Bool('z_%s_%s' % (node_id, j)) ==
                     Or(
-                        Bool('z_%s_%s_%s' % (rightid, j, k)),
+                        Bool('z_%s_%s' % (rightid, j)),
                         And(
-                            Bool('z_%s_%s_%s' % (leftid, j, k)),
-                            Bool('z_%s_%s_%s' % (node_id, next_1, next_2))
+                            Bool('z_%s_%s' % (leftid, j)),
+                            Bool('z_%s_%s' % (node_id, next_id))
                         )
                     )
                 )
 
-        for suffix_entry in suffix_table:
-            s = suffix_entry["sid"]
-            trace = suffix_entry["u"] + suffix_entry["v"]
-
-            for k in range(len(trace)-1):
-                next = suc_1(suffix_entry["u"], suffix_entry["v"], k)
+            else:
                 solver.add(
-                    Bool('z_%s_%s_%s' % (node_id, s, k)) ==
+                    Bool('z_%s_%s' % (node_id, j)) ==
                     Or(
-                        Bool('z_%s_%s_%s' % (rightid, s, k)),
-                        And(
-                            Bool('z_%s_%s_%s' % (leftid, s, k)),
-                            Bool('z_%s_%s_%s' % (node_id, s, next))
-                        )
+                        [
+                            And(
+                                [Bool('z_%s_%s' % (rightid, f))] +
+                                [
+                                    Bool('z_%s_%s' % (leftid, b))
+                                    for b in BET_POS(ntable, j, f)
+                                ]
+                            )
+                            for f in future_positions(ntable, j)
+                        ]
                     )
                 )
-            k = len(trace)-1
-            solver.add(
-                Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                Or(
-                    [
-                        And(
-                            [Bool('z_%s_%s_%s' % (rightid, s, k_p))] +
-                            [
-                                Bool('z_%s_%s_%s' % (leftid, s, k_pp))
-                                for k_pp in BET_1(suffix_entry["u"], suffix_entry["v"], k, k_p)
-                            ]
-                        )
-                        for k_p in range(len(suffix_entry["u"]), len(trace))
-                    ]
-                )
-            )
 
     elif '?u' in label:
         X = [Bool('x_%s_%s' % (node_id, op)) for op in ['!', 'X', 'F', 'G']]
@@ -1258,133 +1124,85 @@ def semanticConstraints_suffix_BMC(solver, sketch, sample_table, suffix_table, l
         # semantics for placeholder
         leftid = sketch.left.identifier
 
-        # finite prefix in sample-table
-        for sample_entry in sample_table:
-            j = sample_entry["id"]
-            trace = sample_entry["prefix"]
+        # suffixes in suffix-table
+        for row in ntable:
+            j = row["id"]
+            next_id = row['next_id']
 
-            for k in range(len(trace)):
-                # placeholder is !
-                solver.add(
-                    Implies(
-                        Bool('x_%s_!' % node_id),  # ->
-                        Bool('z_%s_%s_%s' % (node_id, j, k)) ==
-                        Not(
-                            Bool('z_%s_%s_%s' % (leftid, j, k))
-                        )
+            # placeholder is !
+            solver.add(
+                Implies(
+                    Bool('x_%s_!' % node_id),  # ->
+                    Bool('z_%s_%s' % (node_id, j)) ==
+                    Not(
+                        Bool('z_%s_%s' % (leftid, j))
                     )
                 )
-                # placeholder is X
-                next_1, next_2 = suc_2(sample_entry, k)
-                solver.add(
-                    Implies(
-                        Bool('x_%s_X' % node_id),  # ->
-                        Bool('z_%s_%s_%s' % (node_id, j, k)) ==
-                        Bool('z_%s_%s_%s' % (leftid, next_1, next_2))
-                    )
+            )
+
+            # placeholder is X
+            solver.add(
+                Implies(
+                    Bool('x_%s_X' % node_id),  # ->
+                    Bool('z_%s_%s' % (node_id, j)) ==
+                    Bool('z_%s_%s' % (leftid, next_id))
                 )
-                # placeholder is F
+            )
+
+            # placeholder is F
+            if row['bmc'] == 1:
+                 solver.add(
+                     Implies(
+                         Bool('x_%s_F' % node_id),  # ->
+                         Bool('z_%s_%s' % (node_id, j)) ==
+                         Or(
+                             [
+                                Bool('z_%s_%s' % (leftid, f))
+                                for f in future_positions(ntable, j)
+                             ]
+                         )
+                     )
+                 )
+            else:   # k in range(len(trace)-1)
                 solver.add(
                     Implies(
                         Bool('x_%s_F' % node_id),  # ->
-                        Bool('z_%s_%s_%s' % (node_id, j, k)) ==
+                        Bool('z_%s_%s' % (node_id, j)) ==
                         Or(
-                            Bool('z_%s_%s_%s' % (leftid, j, k)),
-                            Bool('z_%s_%s_%s' % (node_id, next_1, next_2))
+                            Bool('z_%s_%s' % (leftid, j)),
+                            Bool('z_%s_%s' % (node_id, next_id))
                         )
                     )
                 )
-                # placeholder is G
+
+            # placeholder is G
+            if row['bmc'] == 1:
+                 solver.add(
+                     Implies(
+                         Bool('x_%s_G' % node_id),  # ->
+                         Bool('z_%s_%s' % (node_id, j)) ==
+                         And(
+                             [
+                                Bool('z_%s_%s' % (leftid, f))
+                                for f in future_positions(ntable, j)
+                             ]
+                         )
+                     )
+                 )
+            else:   # k in range(len(trace)-1)
                 solver.add(
                     Implies(
                         Bool('x_%s_G' % node_id),  # ->
-                        Bool('z_%s_%s_%s' % (node_id, j, k)) ==
+                        Bool('z_%s_%s' % (node_id, j)) ==
                         And(
-                            Bool('z_%s_%s_%s' % (leftid, j, k)),
-                            Bool('z_%s_%s_%s' % (node_id, next_1, next_2))
+                            Bool('z_%s_%s' % (leftid, j)),
+                            Bool('z_%s_%s' % (node_id, next_id))
                         )
                     )
                 )
-
-        # suffixes in suffix-table
-        for suffix_entry in suffix_table:
-            s = suffix_entry["sid"]
-            trace = suffix_entry["u"] + suffix_entry["v"]
-
-            for k in range(len(trace)):
-                # placeholder is !
-                solver.add(
-                    Implies(
-                        Bool('x_%s_!' % node_id),  # ->
-                        Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                        Not(
-                            Bool('z_%s_%s_%s' % (leftid, s, k))
-                        )
-                    )
-                )
-                # placeholder is X
-                next = suc_1(suffix_entry["u"], suffix_entry["v"], k)
-                solver.add(
-                    Implies(
-                        Bool('x_%s_X' % node_id),  # ->
-                        Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                        Bool('z_%s_%s_%s' % (leftid, s, next))
-                    )
-                )
-                # placeholder is F
-                if k == len(trace)-1:
-                    solver.add(
-                        Implies(
-                            Bool('x_%s_F' % node_id),  # ->
-                            Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                            Or(
-                                [
-                                    Bool('z_%s_%s_%s' % (leftid, s, f))
-                                    for f in FUT_1(suffix_entry["u"], suffix_entry["v"], k)
-                                ]
-                            )
-                        )
-                    )
-                else:   # k in range(len(trace)-1)
-                    solver.add(
-                        Implies(
-                            Bool('x_%s_F' % node_id),  # ->
-                            Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                            Or(
-                                Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                Bool('z_%s_%s_%s' % (node_id, s, next))
-                            )
-                        )
-                    )
-
-                # placeholder is G
-                if k == len(trace)-1:
-                    solver.add(
-                        Implies(
-                            Bool('x_%s_G' % node_id),  # ->
-                            Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                            And(
-                                [
-                                    Bool('z_%s_%s_%s' % (leftid, s, f))
-                                    for f in FUT_1(suffix_entry["u"], suffix_entry["v"], k)
-                                ]
-                            )
-                        )
-                    )
-                else:   # k in range(len(trace)-1)
-                    solver.add(
-                        Implies(
-                            Bool('x_%s_G' % node_id),  # ->
-                            Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                            And(
-                                Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                Bool('z_%s_%s_%s' % (node_id, s, next))
-                            )
-                        )
-                    )
 
     elif '?b' in label:
-        X = [Bool('x_%s_%s' % (node_id, op)) for op in ['&', '|', '->', 'U']]
+        X = [Bool('x_%s_%s' % (node_id, op)) for op in ['&', 'v', '->', 'U']]
 
         # at least one operator and at most one
         solver.add(
@@ -1400,141 +1218,84 @@ def semanticConstraints_suffix_BMC(solver, sketch, sample_table, suffix_table, l
         leftid = sketch.left.identifier
         rightid = sketch.right.identifier
 
-        # finite prefix in sample-table
-        for sample_entry in sample_table:
-            j = sample_entry["id"]
-            trace = sample_entry["prefix"]
+        # suffixes in suffix-table
+        for row in ntable:
+            j = row["id"]
 
-            for k in range(len(trace)):
-                # placeholder is &
-                solver.add(
-                    Implies(
-                        Bool('x_%s_&' % node_id),  # ->
-                        Bool('z_%s_%s_%s' % (node_id, j, k)) ==
-                        And(
-                            Bool('z_%s_%s_%s' % (leftid, j, k)),
-                            Bool('z_%s_%s_%s' % (rightid, j, k))
-                        )
+            # placeholder is &
+            solver.add(
+                Implies(
+                    Bool('x_%s_&' % node_id),  # ->
+                    Bool('z_%s_%s' % (node_id, j)) ==
+                    And(
+                        Bool('z_%s_%s' % (leftid, j)),
+                        Bool('z_%s_%s' % (rightid, j))
                     )
                 )
-                # placeholder is |
-                solver.add(
-                    Implies(
-                        Bool('x_%s_|' % node_id),  # ->
-                        Bool('z_%s_%s_%s' % (node_id, j, k)) ==
-                        Or(
-                            Bool('z_%s_%s_%s' % (leftid, j, k)),
-                            Bool('z_%s_%s_%s' % (rightid, j, k))
-                        )
+            )
+            # placeholder is |
+            solver.add(
+                Implies(
+                    Bool('x_%s_v' % node_id),  # ->
+                    Bool('z_%s_%s' % (node_id, j)) ==
+                    Or(
+                        Bool('z_%s_%s' % (leftid, j)),
+                        Bool('z_%s_%s' % (rightid, j))
                     )
                 )
-                # placeholder is ->
-                solver.add(
+            )
+            # placeholder is ->
+            solver.add(
+                Implies(
+                    Bool('x_%s_->' % node_id),  # ->
+                    Bool('z_%s_%s' % (node_id, j)) ==
                     Implies(
-                        Bool('x_%s_->' % node_id),  # ->
-                        Bool('z_%s_%s_%s' % (node_id, j, k)) ==
-                        Implies(
-                            Bool('z_%s_%s_%s' % (leftid, j, k)),
-                            Bool('z_%s_%s_%s' % (rightid, j, k))
-                        )
+                        Bool('z_%s_%s' % (leftid, j)),
+                        Bool('z_%s_%s' % (rightid, j))
                     )
                 )
-                # placeholder is U, uses [a -> (b & c)] == [(a -> b) & (a -> c)]
-                next_1, next_2 = suc_2(sample_entry, k)
+            )
+            # placeholder is U, uses [a -> (b & c)] == [(a -> b) & (a -> c)]
+            if row["bmc"] == 1:
+                next_id=row['next_id']
                 solver.add(
                     Implies(
                         Bool('x_%s_U' % node_id),  # ->
-                        Bool('z_%s_%s_%s' % (node_id, j, k)) ==
+                        Bool('z_%s_%s' % (node_id, j)) ==
                         Or(
-                            Bool('z_%s_%s_%s' % (rightid, j, k)),
+                            Bool('z_%s_%s' % (rightid, j)),
                             And(
-                                Bool('z_%s_%s_%s' % (leftid, j, k)),
-                                Bool('z_%s_%s_%s' % (node_id, next_1, next_2))
+                                 Bool('z_%s_%s' % (leftid, j)),
+                                 Bool('z_%s_%s' % (node_id, next_id))
                             )
                         )
                     )
                 )
-
-        # suffixes in suffix-table
-        for suffix_entry in suffix_table:
-            s = suffix_entry["sid"]
-            trace = suffix_entry["u"] + suffix_entry["v"]
-
-            for k in range(len(trace)):
-                # placeholder is &
+            else:   # k = len(trace)-1
                 solver.add(
                     Implies(
-                        Bool('x_%s_&' % node_id),  # ->
-                        Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                        And(
-                            Bool('z_%s_%s_%s' % (leftid, s, k)),
-                            Bool('z_%s_%s_%s' % (rightid, s, k))
-                        )
-                    )
-                )
-                # placeholder is |
-                solver.add(
-                    Implies(
-                        Bool('x_%s_|' % node_id),  # ->
-                        Bool('z_%s_%s_%s' % (node_id, s, k)) ==
+                        Bool('x_%s_U' % node_id),  # ->
+                        Bool('z_%s_%s' % (node_id, j)) ==
                         Or(
-                            Bool('z_%s_%s_%s' % (leftid, s, k)),
-                            Bool('z_%s_%s_%s' % (rightid, s, k))
+                            [
+                               And(
+                                     [Bool('z_%s_%s' % (rightid, f))] +
+                                     [
+                                        Bool('z_%s_%s' % (leftid, b))
+                                        for b in BET_POS(ntable, j, f)
+                                     ]
+                               )
+                                    for f in future_positions(ntable, j)
+                            ]
                         )
                     )
                 )
-                # placeholder is ->
-                solver.add(
-                    Implies(
-                        Bool('x_%s_->' % node_id),  # ->
-                        Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                        Implies(
-                            Bool('z_%s_%s_%s' % (leftid, s, k)),
-                            Bool('z_%s_%s_%s' % (rightid, s, k))
-                        )
-                    )
-                )
-                # placeholder is U, uses [a -> (b & c)] == [(a -> b) & (a -> c)]
-                if k in range(len(trace)-1):
-                    next = suc_1(suffix_entry["u"], suffix_entry["v"], k)
-                    solver.add(
-                        Implies(
-                            Bool('x_%s_U' % node_id),  # ->
-                            Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                            Or(
-                                Bool('z_%s_%s_%s' % (rightid, s, k)),
-                                And(
-                                    Bool('z_%s_%s_%s' % (leftid, s, k)),
-                                    Bool('z_%s_%s_%s' % (node_id, s, next))
-                                )
-                            )
-                        )
-                    )
-                else:   # k = len(trace)-1
-                    solver.add(
-                        Implies(
-                            Bool('x_%s_U' % node_id),  # ->
-                            Bool('z_%s_%s_%s' % (node_id, s, k)) ==
-                            Or(
-                                [
-                                    And(
-                                        [Bool('z_%s_%s_%s' % (rightid, s, k_p))] +
-                                        [
-                                            Bool('z_%s_%s_%s' % (leftid, s, k_pp))
-                                            for k_pp in BET_1(suffix_entry["u"], suffix_entry["v"], k, k_p)
-                                        ]
-                                    )
-                                    for k_p in range(len(suffix_entry["u"]), len(trace))
-                                ]
-                            )
-                        )
-                    )
 
     if sketch._isUnary():
-        semanticConstraints_suffix_BMC(solver, sketch.left, sample_table, suffix_table, letter2pos)
+        semanticConstraints_suffix_BMC(solver, sketch.left, ntable, letter2pos)
     if sketch._isBinary():
-        semanticConstraints_suffix_BMC(solver, sketch.left, sample_table, suffix_table, letter2pos)
-        semanticConstraints_suffix_BMC(solver, sketch.right, sample_table, suffix_table, letter2pos)
+        semanticConstraints_suffix_BMC(solver, sketch.left, ntable, letter2pos)
+        semanticConstraints_suffix_BMC(solver, sketch.right, ntable, letter2pos)
 # ---------------------------------------------------------------------------------------------------
 
 
@@ -1596,7 +1357,7 @@ def semanticConstraints_cycle_free(solver, node_list, sample):
                         )
                     )
 
-                elif label == '|':
+                elif label == 'v':
                     solver.add(
                         Bool('z_%s_%s_%s' % (node_id, j, k)) ==
                         Or(
@@ -1720,7 +1481,7 @@ def semanticConstraints_cycle_free(solver, node_list, sample):
                     # placeholder is |
                     solver.add(
                         Implies(
-                            Bool('x_%s_|' % node_id),  # ->
+                            Bool('x_%s_v' % node_id),  # ->
                             Bool('z_%s_%s_%s' % (node_id, j, k)) ==
                             Or(
                                 Bool('z_%s_%s_%s' % (leftid, j, k)),
@@ -1864,7 +1625,7 @@ def semanticConstraints_cycle_free_suffix(solver, node_list, sample_table, suffi
                         )
                     )
 
-        elif label == '|':
+        elif label == 'v':
             leftid = node.left.identifier
             rightid = node.right.identifier
             for sample_entry in sample_table:
@@ -2209,7 +1970,7 @@ def semanticConstraints_cycle_free_suffix(solver, node_list, sample_table, suffi
                     # placeholder is |
                     solver.add(
                         Implies(
-                            Bool('x_%s_|' % node_id),  # ->
+                            Bool('x_%s_v' % node_id),  # ->
                             Bool('z_%s_%s_%s' % (node_id, j, k)) ==
                             Or(
                                 Bool('z_%s_%s_%s' % (leftid, j, k)),
@@ -2268,7 +2029,7 @@ def semanticConstraints_cycle_free_suffix(solver, node_list, sample_table, suffi
                     # placeholder is |
                     solver.add(
                         Implies(
-                            Bool('x_%s_|' % node_id),  # ->
+                            Bool('x_%s_v' % node_id),  # ->
                             Bool('z_%s_%s_%s' % (node_id, s, k)) ==
                             Or(
                                 Bool('z_%s_%s_%s' % (leftid, s, k)),
@@ -2387,7 +2148,7 @@ def semanticConstraints_cycle_free_BMC(solver, node_list, sample):
                         )
                     )
 
-                elif label == '|':
+                elif label == 'v':
                     solver.add(
                         Bool('z_%s_%s_%s' % (node_id, j, k)) ==
                         Or(
@@ -2565,7 +2326,7 @@ def semanticConstraints_cycle_free_BMC(solver, node_list, sample):
                     # placeholder is |
                     solver.add(
                         Implies(
-                            Bool('x_%s_|' % node_id),  # ->
+                            Bool('x_%s_v' % node_id),  # ->
                             Bool('z_%s_%s_%s' % (node_id, j, k)) ==
                             Or(
                                 Bool('z_%s_%s_%s' % (leftid, j, k)),
@@ -2734,7 +2495,7 @@ def semanticConstraints_cycle_free_suffix_BMC(solver, node_list, sample_table, s
                         )
                     )
 
-        elif label == '|':
+        elif label == 'v':
             for sample_entry in sample_table:
                 j = sample_entry["id"]
                 trace = sample_entry["prefix"]
@@ -3091,7 +2852,7 @@ def semanticConstraints_cycle_free_suffix_BMC(solver, node_list, sample_table, s
                     # placeholder is |
                     solver.add(
                         Implies(
-                            Bool('x_%s_|' % node_id),  # ->
+                            Bool('x_%s_v' % node_id),  # ->
                             Bool('z_%s_%s_%s' % (node_id, j, k)) ==
                             Or(
                                 Bool('z_%s_%s_%s' % (leftid, j, k)),
@@ -3146,7 +2907,7 @@ def semanticConstraints_cycle_free_suffix_BMC(solver, node_list, sample_table, s
                     # placeholder is |
                     solver.add(
                         Implies(
-                            Bool('x_%s_|' % node_id),  # ->
+                            Bool('x_%s_v' % node_id),  # ->
                             Bool('z_%s_%s_%s' % (node_id, s, k)) ==
                             Or(
                                 Bool('z_%s_%s_%s' % (leftid, s, k)),
@@ -3333,7 +3094,7 @@ def placeholderConstraints(solver, sketch, nodes):
                         [
                             Bool('x_%s_%s' % (id, op)) ==
                             Bool('x_%s_%s' % (node.identifier, op))
-                            for op in ['&', '|', '->', 'U']
+                            for op in ['&', 'v', '->', 'U']
                         ]
                     )
                 )
@@ -3472,7 +3233,7 @@ def structureConstraints_cycle_free(solver, sketch_nodes, parent_nodes, possible
             )
 
         elif '?b' in node.label:
-            X = [Bool('x_%s_%s' % (node_id, op)) for op in ['&', '|', '->', 'U']]
+            X = [Bool('x_%s_%s' % (node_id, op)) for op in ['&', 'v', '->', 'U']]
 
             # at least one operator and at most one
             solver.add(
@@ -3486,7 +3247,7 @@ def structureConstraints_cycle_free(solver, sketch_nodes, parent_nodes, possible
             solver.add(
                 [
                     Not(Bool('x_%s_%s' % (node_id, label)))
-                    for label in possible_labels if label not in ['&', '|', '->', 'U']
+                    for label in possible_labels if label not in ['&', 'v', '->', 'U']
                 ]
             )
 
@@ -3537,7 +3298,7 @@ def structureConstraints_cycle_free(solver, sketch_nodes, parent_nodes, possible
             )
 
         elif '?b' in node.label:
-            X = [Bool('x_%s_%s' % (node_id, op)) for op in ['&', '|', '->', 'U']]
+            X = [Bool('x_%s_%s' % (node_id, op)) for op in ['&', 'v', '->', 'U']]
 
             # at least one operator and at most one
             solver.add(
@@ -3600,7 +3361,7 @@ def cycleConstraints(solver, identifier_list, alphabet):
     """
 
     unary = ['!', 'X', 'G', 'F']
-    binary = ['&', '|', '->', 'U']
+    binary = ['&', 'v', '->', 'U']
 
     # leaves
     solver.add(
@@ -3724,7 +3485,7 @@ def initial_cycleConstraints(solver, sketch_nodes, parent_nodes, alphabet):
     identifier_list = [node.identifier for node in sketch_nodes] + [node.identifier for node in parent_nodes]
 
     unary = ['!', 'X', 'G', 'F']
-    binary = ['&', '|', '->', 'U']
+    binary = ['&', 'v', '->', 'U']
 
     for node in sketch_nodes:
         label = node.label
@@ -3854,7 +3615,7 @@ def loop_cycleConstraints(solver, parent_nodes, additional_node_ids, new_node_id
     """
 
     unary = ['!', 'X', 'G', 'F']
-    binary = ['&', '|', '->', 'U']
+    binary = ['&', 'v', '->', 'U']
 
     for node in parent_nodes:
         node_id = node.identifier
