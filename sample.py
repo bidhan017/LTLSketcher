@@ -113,7 +113,7 @@ class Trace:
             elif label == '&':
                 val = self.truthValue(formula.left, timestep, letter2pos) and self.truthValue(formula.right, timestep,
                                                                                               letter2pos)
-            elif label == '|':
+            elif label == 'v':
                 val = self.truthValue(formula.left, timestep, letter2pos) or self.truthValue(formula.right, timestep,
                                                                                              letter2pos)
             elif label == '!':
@@ -170,7 +170,7 @@ class Sample:
         self.alphabet = alphabet
         self.num_positives = len(self.positive)
         self.num_negatives = len(self.negative)
-        self.operators = ['G', 'F', '!', 'X', '&', '|', 'U', '->']
+        self.operators = ['G', 'F', '!', 'X', '&', 'v', 'U', '->']
         self.original_formula = original_formula
 
 

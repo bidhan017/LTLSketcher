@@ -5,7 +5,7 @@ from graphviz import Source
 
 
 unary_operators = ['G', 'F', '!', 'X']
-binary_operators = ['&', '|', 'U', '->']
+binary_operators = ['&', 'v', 'U', '->']
 
 
 class LTL2NFA:
@@ -156,7 +156,7 @@ class LTL2NFA:
 		#print('this is the op', op)
 		if op == '&':
 			return self.checkSat(letter, atom.left) and self.checkSat(letter, atom.right)
-		elif op == '|':
+		elif op == 'v':
 			return self.checkSat(letter, atom.left) or self.checkSat(letter, atom.right)
 		elif op == '!':
 			return not self.checkSat(letter, atom.left)

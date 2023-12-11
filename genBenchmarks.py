@@ -26,7 +26,7 @@ class SampleGenerator:
 		self.output_folder = output_folder
 		self.total_num = total_num
 		self.gen_method = gen_method
-		self.operators = ['F', 'G', 'X', '!', '&', '|']
+		self.operators = ['F', 'G', 'X', '!', '&', 'v']
 
 		if os.path.exists(self.output_folder):
 			shutil.rmtree(self.output_folder)
@@ -161,7 +161,7 @@ def main():
 	output_folder = args.output_folder
 	total_num = int(args.total_num)
 	gen_method = args.gen_method
-	operators = ['F', 'G', 'X', '!', '&', '|']
+	operators = ['F', 'G', 'X', '!', '&', 'v']
 
 	generator = SampleGenerator(formula_file=formula_file,
 				trace_type=trace_type,

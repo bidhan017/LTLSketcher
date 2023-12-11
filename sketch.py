@@ -2,7 +2,7 @@ from lark import Lark, Transformer
 from graphviz import Source
 
 unary_operators = ['G', 'F', '!', 'X'] + ['?u' + str(i) for i in range(0, 100, 1)]
-binary_operators = ['&', '|', 'U', '->'] + ['?b' + str(i) for i in range(0, 100, 1)]
+binary_operators = ['&', 'v', 'U', '->'] + ['?b' + str(i) for i in range(0, 100, 1)]
 
 
 class SimpleTree:
@@ -353,7 +353,7 @@ class Sketch(SimpleTree):
 				!uplaceholder: /\?u/SIGNED_NUMBER
 				!placeholder: "?"SIGNED_NUMBER
 				variable: /[a-z]/ | placeholder
-				!binary_operator: "&" | "|" | "->" | "U"
+				!binary_operator: "&" | "v" | "->" | "U"
 				!unary_operator: "F" | "G" | "!" | "X"
 				
 				%import common.SIGNED_NUMBER    
@@ -395,7 +395,7 @@ class TreeToFormula(Transformer):
 
     def constant(self, arg):
         if str(arg[0]) == "true":
-            connector = "|"
+            connector = "v"
         elif str(arg[0]) == "false":
             connector = "&"
         return Sketch([connector, Sketch(["p", None, None]), Sketch(["!", Sketch(["p", None, None]), None])])
